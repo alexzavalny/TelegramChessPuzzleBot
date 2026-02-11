@@ -50,15 +50,15 @@ module TelegramChessPuzzleBot
       @piece_cache = {}
     end
 
-    def render_png(fen:, puzzle_id:, output_dir: Dir.tmpdir)
+    def render_png(fen:, puzzle_id:, output_dir: Dir.tmpdir, flip_for_black: false)
       placement = fen.split.first
       squares = parse_placement(placement)
       size = (CELL * 8) + (LABEL_BAND * 2) + (OUTER * 2)
 
       image = ChunkyPNG::Image.new(size, size, BG)
       draw_board(image)
-      draw_coordinates(image)
-      draw_pieces(image, squares)
+      draw_coordinates(image, flip_for_black: flip_for_black)
+      draw_pieces(image, squares, flip_for_black: flip_for_black)
 
       path = File.join(output_dir, "puzzle_#{puzzle_id}.png")
       image.save(path)
@@ -100,29 +100,31 @@ module TelegramChessPuzzleBot
       end
     end
 
-    def draw_coordinates(image)
-      ('a'..'h').each_with_index do |file, idx|
+    def draw_coordinates(image, flip_for_black:)
+      files = flip_for_black ? ('a'..'h').to_a.reverse : ('a'..'h').to_a
+      ranks = flip_for_black ? (1..8).to_a : (8).downto(1).to_a
+
+      files.each_with_index do |file, idx|
         x = board_origin + (idx * CELL) + ((CELL - 6) / 2)
         draw_char(image, file, x, board_origin + (8 * CELL) + 5, LABEL_COLOR)
         draw_char(image, file, x, board_origin - 11, LABEL_COLOR)
       end
 
-      8.downto(1).each_with_index do |rank, idx|
+      ranks.each_with_index do |rank, idx|
         y = board_origin + (idx * CELL) + ((CELL - 10) / 2)
         draw_char(image, rank.to_s, board_origin - 10, y, LABEL_COLOR)
         draw_char(image, rank.to_s, board_origin + (8 * CELL) + 5, y, LABEL_COLOR)
       end
     end
 
-    def draw_pieces(image, squares)
+    def draw_pieces(image, squares, flip_for_black:)
       squares.each do |square, piece|
         sprite = load_piece(piece)
         next unless sprite
 
-        file = square[0]
-        rank = square[1].to_i
-        x0 = board_origin + ((file.ord - 'a'.ord) * CELL)
-        y0 = board_origin + ((8 - rank) * CELL)
+        x_idx, y_idx = display_indices_for(square, flip_for_black: flip_for_black)
+        x0 = board_origin + (x_idx * CELL)
+        y0 = board_origin + (y_idx * CELL)
 
         sx = x0 + ((CELL - sprite.width) / 2)
         sy = y0 + ((CELL - sprite.height) / 2)
@@ -159,6 +161,17 @@ module TelegramChessPuzzleBot
       end
 
       scaled
+    end
+
+    def display_indices_for(square, flip_for_black:)
+      file_idx = square[0].ord - 'a'.ord
+      rank = square[1].to_i
+
+      if flip_for_black
+        [7 - file_idx, rank - 1]
+      else
+        [file_idx, 8 - rank]
+      end
     end
 
     def draw_char(image, char, x0, y0, color)

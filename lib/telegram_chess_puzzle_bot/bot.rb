@@ -4,6 +4,7 @@ module TelegramChessPuzzleBot
   class Bot
     START_REGEX = %r{(?:^|\s)/?start(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     TRIGGER_REGEX = %r{(?:^|\s)/?puzzle(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    RANDOM_REGEX = %r{(?:^|\s)/?random(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
@@ -19,6 +20,12 @@ module TelegramChessPuzzleBot
     def start
       puts "[#{Time.now}] Starting TelegramChessPuzzleBot..."
       Telegram::Bot::Client.run(@token) do |client|
+        me = client.api.get_me
+        username = dig_value(me, :username)
+        bot_id = dig_value(me, :id)
+        puts "[#{Time.now}] Logged in as @#{username} (id=#{bot_id})"
+        client.api.delete_webhook(drop_pending_updates: false)
+        puts "[#{Time.now}] Webhook removed. Using long polling for updates."
         puts "[#{Time.now}] Bot connected. Waiting for messages."
         client.listen do |message|
           handle_message(client, message)
@@ -45,7 +52,10 @@ module TelegramChessPuzzleBot
         send_help(client, chat_id)
       elsif text.match?(TRIGGER_REGEX)
         puts "[#{Time.now}] Trigger detected in chat=#{chat_id}. Preparing daily puzzle."
-        send_daily_puzzle(client, chat_id)
+        send_puzzle(client, chat_id, source: :daily)
+      elsif text.match?(RANDOM_REGEX)
+        puts "[#{Time.now}] Random command in chat=#{chat_id}. Preparing random puzzle."
+        send_puzzle(client, chat_id, source: :random)
       elsif text.match?(ANSWER_REGEX)
         puts "[#{Time.now}] Answer command in chat=#{chat_id}."
         send_answer(client, chat_id)
@@ -57,9 +67,9 @@ module TelegramChessPuzzleBot
       end
     end
 
-    def send_daily_puzzle(client, chat_id)
-      puts "[#{Time.now}] Fetching daily puzzle from Lichess..."
-      payload = @lichess_client.fetch_daily_puzzle
+    def send_puzzle(client, chat_id, source:)
+      puts "[#{Time.now}] Fetching #{source} puzzle from Lichess..."
+      payload = source == :random ? @lichess_client.fetch_random_puzzle : @lichess_client.fetch_daily_puzzle
       fen = @fen_builder.build(
         pgn: payload.fetch('game').fetch('pgn'),
         initial_ply: payload.fetch('puzzle').fetch('initialPly')
@@ -67,7 +77,11 @@ module TelegramChessPuzzleBot
       puzzle = DailyPuzzleBuilder.from_api(payload, fen: fen)
       puts "[#{Time.now}] Puzzle fetched id=#{puzzle.id} rating=#{puzzle.rating} side_to_move=#{puzzle.side_to_move}"
 
-      image_path = @board_renderer.render_png(fen: puzzle.fen, puzzle_id: puzzle.id)
+      image_path = @board_renderer.render_png(
+        fen: puzzle.fen,
+        puzzle_id: puzzle.id,
+        flip_for_black: puzzle.side_to_move == 'b'
+      )
       puts "[#{Time.now}] Board rendered: #{image_path}"
       @session_store.put(chat_id, puzzle)
       puts "[#{Time.now}] Session stored for chat=#{chat_id}"
@@ -76,7 +90,7 @@ module TelegramChessPuzzleBot
       client.api.send_photo(
         chat_id: chat_id,
         photo: file,
-        caption: caption_for(puzzle)
+        caption: caption_for(puzzle, source: source)
       )
       puts "[#{Time.now}] Puzzle photo sent to chat=#{chat_id}"
     ensure
@@ -112,8 +126,10 @@ module TelegramChessPuzzleBot
       puts "[#{Time.now}] Solution revealed and session closed for chat=#{chat_id}"
     end
 
-    def caption_for(puzzle)
-      "Daily Puzzle ##{puzzle.id} (#{puzzle.rating})\nReply with UCI moves like: e2e4"
+    def caption_for(puzzle, source:)
+      title = source == :random ? "Random Puzzle" : "Daily Puzzle"
+      to_move = puzzle.side_to_move == 'w' ? 'White to move' : 'Black to move'
+      "#{title} ##{puzzle.id} (#{puzzle.rating})\n#{to_move}\nReply with UCI moves like: e2e4"
     end
 
     def send_help(client, chat_id)
@@ -122,6 +138,7 @@ module TelegramChessPuzzleBot
         "",
         "Commands:",
         "- puzzle: get today's Lichess daily puzzle",
+        "- random: get a random Lichess puzzle (difficulty: normal)",
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
@@ -131,6 +148,16 @@ module TelegramChessPuzzleBot
         "Works in DM and group chats."
       ].join("\n")
       client.api.send_message(chat_id: chat_id, text: msg)
+    end
+
+    def dig_value(value, key)
+      if value.respond_to?(key)
+        value.public_send(key)
+      elsif value.is_a?(Hash)
+        value[key.to_s] || value[key.to_sym]
+      elsif value.respond_to?(:[])
+        value[key]
+      end
     end
   end
 end
