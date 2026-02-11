@@ -25,6 +25,8 @@ Telegram bot for chess puzzles in DMs and group chats.
 - `start`, `/start`, `/start@YourBotName`: show help
 - `puzzle`, `/puzzle`, `/puzzle@YourBotName`: start daily puzzle
 - `random`, `/random`, `/random@YourBotName`: start random puzzle (`difficulty=normal`)
+- `random-easy`, `/random-easy`, `/random-easy@YourBotName`: random puzzle (`difficulty=easy`)
+- `random-hard`, `/random-hard`, `/random-hard@YourBotName`: random puzzle (`difficulty=hard`)
 - `answer`, `/answer`, `/answer@YourBotName`: reveal current solution (spoiler)
 
 ## Solve Flow

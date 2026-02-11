@@ -7,6 +7,8 @@ module TelegramChessPuzzleBot
     START_REGEX = %r{(?:^|\s)/?start(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     TRIGGER_REGEX = %r{(?:^|\s)/?puzzle(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_REGEX = %r{(?:^|\s)/?random(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    RANDOM_EASY_REGEX = %r{(?:^|\s)/?random-easy(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    RANDOM_HARD_REGEX = %r{(?:^|\s)/?random-hard(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
@@ -57,7 +59,13 @@ module TelegramChessPuzzleBot
         send_puzzle(client, chat_id, source: :daily)
       elsif text.match?(RANDOM_REGEX)
         puts "[#{Time.now}] Random command in chat=#{chat_id}. Preparing random puzzle."
-        send_puzzle(client, chat_id, source: :random)
+        send_puzzle(client, chat_id, source: :random, difficulty: 'normal')
+      elsif text.match?(RANDOM_EASY_REGEX)
+        puts "[#{Time.now}] Random-easy command in chat=#{chat_id}. Preparing random puzzle."
+        send_puzzle(client, chat_id, source: :random, difficulty: 'easy')
+      elsif text.match?(RANDOM_HARD_REGEX)
+        puts "[#{Time.now}] Random-hard command in chat=#{chat_id}. Preparing random puzzle."
+        send_puzzle(client, chat_id, source: :random, difficulty: 'hard')
       elsif text.match?(ANSWER_REGEX)
         puts "[#{Time.now}] Answer command in chat=#{chat_id}."
         send_answer(client, chat_id)
@@ -69,9 +77,13 @@ module TelegramChessPuzzleBot
       end
     end
 
-    def send_puzzle(client, chat_id, source:)
+    def send_puzzle(client, chat_id, source:, difficulty: nil)
       puts "[#{Time.now}] Fetching #{source} puzzle from Lichess..."
-      payload = source == :random ? @lichess_client.fetch_random_puzzle : @lichess_client.fetch_daily_puzzle
+      payload = if source == :random
+                  @lichess_client.fetch_random_puzzle(difficulty: difficulty || 'normal')
+                else
+                  @lichess_client.fetch_daily_puzzle
+                end
       fen = @fen_builder.build(
         pgn: payload.fetch('game').fetch('pgn'),
         initial_ply: payload.fetch('puzzle').fetch('initialPly')
@@ -92,7 +104,7 @@ module TelegramChessPuzzleBot
       client.api.send_photo(
         chat_id: chat_id,
         photo: file,
-        caption: caption_for(puzzle, source: source)
+        caption: caption_for(puzzle, source: source, difficulty: difficulty)
       )
       puts "[#{Time.now}] Puzzle photo sent to chat=#{chat_id}"
     ensure
@@ -187,8 +199,14 @@ module TelegramChessPuzzleBot
       puts "[#{Time.now}] Solution revealed and session closed for chat=#{chat_id}"
     end
 
-    def caption_for(puzzle, source:)
-      title = source == :random ? "Random Puzzle" : "Daily Puzzle"
+    def caption_for(puzzle, source:, difficulty:)
+      title = if source == :random
+                diff = difficulty.to_s.strip
+                diff = 'normal' if diff.empty?
+                "Random Puzzle (#{diff})"
+              else
+                'Daily Puzzle'
+              end
       to_move = puzzle.side_to_move == 'w' ? 'White to move' : 'Black to move'
       "#{title} ##{puzzle.id} (#{puzzle.rating})\n#{to_move}\nReply with UCI moves like: e2e4"
     end
@@ -200,6 +218,8 @@ module TelegramChessPuzzleBot
         "Commands:",
         "- puzzle: get today's Lichess daily puzzle",
         "- random: get a random Lichess puzzle (difficulty: normal)",
+        "- random-easy: get a random Lichess puzzle (difficulty: easy)",
+        "- random-hard: get a random Lichess puzzle (difficulty: hard)",
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
