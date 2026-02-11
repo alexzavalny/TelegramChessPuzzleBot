@@ -108,8 +108,8 @@ module TelegramChessPuzzleBot
 
       expected_move = session.puzzle.solution[session.progress]
       unless expected_move
-        client.api.send_message(chat_id: chat_id, text: 'Puzzle is already complete. Send puzzle or random for a new one.')
-        @session_store.delete(chat_id)
+        @session_store.update(chat_id) { |s| s.progress = 0 }
+        client.api.send_message(chat_id: chat_id, text: 'Puzzle line was complete, reset to start. Your turn.')
         return
       end
 
@@ -136,9 +136,9 @@ module TelegramChessPuzzleBot
 
       session = @session_store.get(chat_id)
       if session.progress >= session.puzzle.solution.length
-        client.api.send_message(chat_id: chat_id, text: "Correct. Puzzle solved.\n#{scoreboard_text(session)}")
-        @session_store.delete(chat_id)
-        puts "[#{Time.now}] Session closed for chat=#{chat_id}"
+        client.api.send_message(chat_id: chat_id, text: "Correct. Puzzle solved.\n#{scoreboard_text(session)}\nLine reset, others can continue.")
+        @session_store.update(chat_id) { |s| s.progress = 0 }
+        puts "[#{Time.now}] Session kept active for chat=#{chat_id} (line reset after solve)"
         return
       end
 
@@ -155,11 +155,11 @@ module TelegramChessPuzzleBot
       if session.progress >= session.puzzle.solution.length
         client.api.send_message(
           chat_id: chat_id,
-          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>.\nLine complete.\n#{CGI.escapeHTML(scoreboard_text(session))}",
+          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>.\nLine complete.\n#{CGI.escapeHTML(scoreboard_text(session))}\nLine reset, others can continue.",
           parse_mode: 'HTML'
         )
-        @session_store.delete(chat_id)
-        puts "[#{Time.now}] Session closed for chat=#{chat_id}"
+        @session_store.update(chat_id) { |s| s.progress = 0 }
+        puts "[#{Time.now}] Session kept active for chat=#{chat_id} (line reset after solve)"
       else
         client.api.send_message(
           chat_id: chat_id,
@@ -178,7 +178,11 @@ module TelegramChessPuzzleBot
       end
 
       solution = session.puzzle.solution.join(' ')
-      client.api.send_message(chat_id: chat_id, text: "Solution: #{solution}\n#{scoreboard_text(session)}")
+      client.api.send_message(
+        chat_id: chat_id,
+        text: "Solution: <tg-spoiler>#{CGI.escapeHTML(solution)}</tg-spoiler>\n#{CGI.escapeHTML(scoreboard_text(session))}",
+        parse_mode: 'HTML'
+      )
       @session_store.delete(chat_id)
       puts "[#{Time.now}] Solution revealed and session closed for chat=#{chat_id}"
     end
