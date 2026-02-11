@@ -2,8 +2,9 @@
 
 module TelegramChessPuzzleBot
   class Bot
-    TRIGGER_REGEX = /(?:^|\s)\/?puzzle(?:\s|$)/i
-    ANSWER_REGEX = /(?:^|\s)\/?answer(?:\s|$)/i
+    START_REGEX = %r{(?:^|\s)/?start(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    TRIGGER_REGEX = %r{(?:^|\s)/?puzzle(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
                    answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new)
@@ -39,7 +40,10 @@ module TelegramChessPuzzleBot
       user = message.from&.username || message.from&.first_name || "unknown"
       puts "[#{Time.now}] Message chat=#{chat_id} user=#{user} text=#{text.inspect}"
 
-      if text.match?(TRIGGER_REGEX)
+      if text.match?(START_REGEX)
+        puts "[#{Time.now}] Start/help command in chat=#{chat_id}."
+        send_help(client, chat_id)
+      elsif text.match?(TRIGGER_REGEX)
         puts "[#{Time.now}] Trigger detected in chat=#{chat_id}. Preparing daily puzzle."
         send_daily_puzzle(client, chat_id)
       elsif text.match?(ANSWER_REGEX)
@@ -110,6 +114,23 @@ module TelegramChessPuzzleBot
 
     def caption_for(puzzle)
       "Daily Puzzle ##{puzzle.id} (#{puzzle.rating})\nReply with UCI moves like: e2e4"
+    end
+
+    def send_help(client, chat_id)
+      msg = [
+        "Chess Puzzle Bot",
+        "",
+        "Commands:",
+        "- puzzle: get today's Lichess daily puzzle",
+        "- answer: reveal the full solution for current puzzle",
+        "",
+        "How to solve:",
+        "- Reply with UCI moves like: e2e4",
+        "- You can send one move or a sequence: e2e4 e7e5",
+        "",
+        "Works in DM and group chats."
+      ].join("\n")
+      client.api.send_message(chat_id: chat_id, text: msg)
     end
   end
 end
