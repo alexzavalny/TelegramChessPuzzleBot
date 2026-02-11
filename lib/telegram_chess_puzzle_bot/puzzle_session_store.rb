@@ -2,7 +2,7 @@
 
 module TelegramChessPuzzleBot
   class PuzzleSessionStore
-    Session = Struct.new(:chat_id, :puzzle, :created_at, :progress, :scores, keyword_init: true)
+    Session = Struct.new(:chat_id, :puzzle, :created_at, :progress, :scores, :solved_by, keyword_init: true)
 
     def initialize
       @sessions = {}
@@ -16,7 +16,8 @@ module TelegramChessPuzzleBot
           puzzle: puzzle,
           created_at: Time.now.utc,
           progress: 0,
-          scores: {}
+          scores: {},
+          solved_by: nil
         )
       end
     end

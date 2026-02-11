@@ -127,6 +127,9 @@ module TelegramChessPuzzleBot
         entry['name'] = user_name
         entry['correct_moves'] += 1
         s.progress += 1
+        if s.progress >= s.puzzle.solution.length
+          s.solved_by ||= { 'id' => user_id, 'name' => user_name }
+        end
       end
 
       session = @session_store.get(chat_id)
@@ -141,6 +144,9 @@ module TelegramChessPuzzleBot
       @session_store.update(chat_id) do |s|
         bot_move = s.puzzle.solution[s.progress]
         s.progress += 1 if bot_move
+        if s.progress >= s.puzzle.solution.length
+          s.solved_by ||= { 'id' => user_id, 'name' => user_name }
+        end
       end
       session = @session_store.get(chat_id)
 
@@ -194,9 +200,14 @@ module TelegramChessPuzzleBot
 
     def scoreboard_text(session)
       entries = session.scores.values.sort_by { |row| -row['correct_moves'] }
-      return 'Scoreboard: no correct moves yet.' if entries.empty?
+      solved_line = if session.solved_by
+                      "Solved by: #{session.solved_by['name']}"
+                    else
+                      'Solved by: not solved yet'
+                    end
+      return "#{solved_line}\nScoreboard: no correct moves yet." if entries.empty?
 
-      "Scoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
+      "#{solved_line}\nScoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
     end
 
     def display_name_for(user)
