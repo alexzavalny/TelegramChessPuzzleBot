@@ -50,13 +50,12 @@ module TelegramChessPuzzleBot
       image_path = @board_renderer.render_png(fen: puzzle.fen, puzzle_id: puzzle.id)
       @session_store.put(chat_id, puzzle)
 
-      File.open(image_path, 'rb') do |file|
-        client.api.send_photo(
-          chat_id: chat_id,
-          photo: file,
-          caption: caption_for(puzzle)
-        )
-      end
+      file = UploadIO.new(image_path, 'image/png', File.basename(image_path))
+      client.api.send_photo(
+        chat_id: chat_id,
+        photo: file,
+        caption: caption_for(puzzle)
+      )
     ensure
       File.delete(image_path) if image_path && File.exist?(image_path)
     end

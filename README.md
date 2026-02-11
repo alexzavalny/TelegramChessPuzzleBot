@@ -13,8 +13,9 @@ When user sends `puzzle`, bot:
 
 ```bash
 bundle install
-export TELEGRAM_BOT_TOKEN=your_token
-./bin/bot
+cp .env.example .env
+# edit .env and set TELEGRAM_BOT_TOKEN
+bundle exec ruby ./bin/bot
 ```
 
 ## Notes
