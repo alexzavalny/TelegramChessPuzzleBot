@@ -6,7 +6,10 @@ module TelegramChessPuzzleBot
       moves = extract_san_moves(pgn)
       position = ChessPosition.new
 
-      moves.first(initial_ply).each { |san| position.apply_san(san) }
+      # Lichess puzzle `initialPly` is zero-based.
+      # To get the board shown in the puzzle, apply `initialPly + 1` plies.
+      plies_to_apply = initial_ply.to_i + 1
+      moves.first(plies_to_apply).each { |san| position.apply_san(san) }
 
       position.fen
     end
