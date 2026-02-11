@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
+require 'telegram_chess_puzzle_bot'
+
+token = ENV['TELEGRAM_BOT_TOKEN']
+abort('Set TELEGRAM_BOT_TOKEN') if token.to_s.strip.empty?
+
+TelegramChessPuzzleBot::Bot.new(token: token).start
