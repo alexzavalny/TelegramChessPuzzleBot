@@ -5,36 +5,26 @@ require 'spec_helper'
 RSpec.describe TelegramChessPuzzleBot::AnswerChecker do
   subject(:checker) { described_class.new }
 
-  let(:solution) { %w[f3g3 f2g3 f8f1] }
+  let(:expected_move) { 'f3g3' }
 
-  it 'accepts first move only' do
-    result = checker.check('f3g3', solution)
+  it 'accepts expected turn move' do
+    result = checker.check_turn('f3g3', expected_move)
 
     expect(result.correct).to be(true)
-    expect(result.message).to match(/Correct first move/)
-    expect(result.completed).to be(false)
+    expect(result.move).to eq('f3g3')
   end
 
-  it 'accepts correct sequence prefix' do
-    result = checker.check('f3g3 f2g3', solution)
+  it 'rejects multi-move input' do
+    result = checker.check_turn('f3g3 f2g3', expected_move)
 
-    expect(result.correct).to be(true)
-    expect(result.message).to match(/Correct so far/)
-    expect(result.completed).to be(false)
-  end
-
-  it 'marks completed when full sequence is given' do
-    result = checker.check('f3g3 f2g3 f8f1', solution)
-
-    expect(result.correct).to be(true)
-    expect(result.completed).to be(true)
-    expect(result.message).to match(/Correct sequence/)
+    expect(result.correct).to be(false)
+    expect(result.message).to match(/one move at a time/i)
   end
 
   it 'rejects wrong move' do
-    result = checker.check('f3f2', solution)
+    result = checker.check_turn('f3f2', expected_move)
 
     expect(result.correct).to be(false)
-    expect(result.completed).to be(false)
+    expect(result.message).to match(/Wrong move/i)
   end
 end

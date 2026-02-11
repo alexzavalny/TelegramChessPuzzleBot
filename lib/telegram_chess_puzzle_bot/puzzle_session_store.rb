@@ -2,7 +2,7 @@
 
 module TelegramChessPuzzleBot
   class PuzzleSessionStore
-    Session = Struct.new(:chat_id, :puzzle, :created_at, keyword_init: true)
+    Session = Struct.new(:chat_id, :puzzle, :created_at, :progress, :scores, keyword_init: true)
 
     def initialize
       @sessions = {}
@@ -11,7 +11,13 @@ module TelegramChessPuzzleBot
 
     def put(chat_id, puzzle)
       @mutex.synchronize do
-        @sessions[chat_id] = Session.new(chat_id: chat_id, puzzle: puzzle, created_at: Time.now.utc)
+        @sessions[chat_id] = Session.new(
+          chat_id: chat_id,
+          puzzle: puzzle,
+          created_at: Time.now.utc,
+          progress: 0,
+          scores: {}
+        )
       end
     end
 
@@ -25,6 +31,16 @@ module TelegramChessPuzzleBot
 
     def pending?(chat_id)
       @mutex.synchronize { @sessions.key?(chat_id) }
+    end
+
+    def update(chat_id)
+      @mutex.synchronize do
+        session = @sessions[chat_id]
+        return unless session
+
+        yield session
+        session
+      end
     end
   end
 end

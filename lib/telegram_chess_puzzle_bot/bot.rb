@@ -61,7 +61,7 @@ module TelegramChessPuzzleBot
         send_answer(client, chat_id)
       elsif @session_store.pending?(chat_id)
         puts "[#{Time.now}] Pending puzzle found for chat=#{chat_id}. Checking answer."
-        check_answer(client, chat_id, text)
+        check_answer(client, message)
       else
         puts "[#{Time.now}] Ignored message in chat=#{chat_id} (no trigger, no pending puzzle)."
       end
@@ -98,17 +98,58 @@ module TelegramChessPuzzleBot
       puts "[#{Time.now}] Temp image deleted: #{image_path}" if image_path
     end
 
-    def check_answer(client, chat_id, text)
+    def check_answer(client, message)
+      chat_id = message.chat.id
+      text = message.text.to_s.strip
       session = @session_store.get(chat_id)
       return unless session
 
-      result = @answer_checker.check(text, session.puzzle.solution)
-      puts "[#{Time.now}] Answer checked chat=#{chat_id} correct=#{result.correct} input=#{text.inspect}"
-      client.api.send_message(chat_id: chat_id, text: result.message)
-      if result.completed
+      expected_move = session.puzzle.solution[session.progress]
+      unless expected_move
+        client.api.send_message(chat_id: chat_id, text: 'Puzzle is already complete. Send puzzle or random for a new one.')
+        @session_store.delete(chat_id)
+        return
+      end
+
+      result = @answer_checker.check_turn(text, expected_move)
+      puts "[#{Time.now}] Answer checked chat=#{chat_id} correct=#{result.correct} input=#{text.inspect} expected=#{expected_move}"
+      unless result.correct
+        client.api.send_message(chat_id: chat_id, text: result.message)
+        puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
+        return
+      end
+
+      user_name = display_name_for(message.from)
+      user_id = message.from&.id || 0
+
+      @session_store.update(chat_id) do |s|
+        entry = s.scores[user_id] ||= { 'name' => user_name, 'correct_moves' => 0 }
+        entry['name'] = user_name
+        entry['correct_moves'] += 1
+        s.progress += 1
+      end
+
+      session = @session_store.get(chat_id)
+      if session.progress >= session.puzzle.solution.length
+        client.api.send_message(chat_id: chat_id, text: "Correct. Puzzle solved.\n#{scoreboard_text(session)}")
+        @session_store.delete(chat_id)
+        puts "[#{Time.now}] Session closed for chat=#{chat_id}"
+        return
+      end
+
+      bot_move = nil
+      @session_store.update(chat_id) do |s|
+        bot_move = s.puzzle.solution[s.progress]
+        s.progress += 1 if bot_move
+      end
+      session = @session_store.get(chat_id)
+
+      if session.progress >= session.puzzle.solution.length
+        client.api.send_message(chat_id: chat_id, text: "Correct. Opponent plays #{bot_move}.\nLine complete.\n#{scoreboard_text(session)}")
         @session_store.delete(chat_id)
         puts "[#{Time.now}] Session closed for chat=#{chat_id}"
       else
+        client.api.send_message(chat_id: chat_id, text: "Correct. Opponent plays #{bot_move}. Your turn.\n#{scoreboard_text(session)}")
         puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
       end
     end
@@ -121,7 +162,7 @@ module TelegramChessPuzzleBot
       end
 
       solution = session.puzzle.solution.join(' ')
-      client.api.send_message(chat_id: chat_id, text: "Solution: #{solution}")
+      client.api.send_message(chat_id: chat_id, text: "Solution: #{solution}\n#{scoreboard_text(session)}")
       @session_store.delete(chat_id)
       puts "[#{Time.now}] Solution revealed and session closed for chat=#{chat_id}"
     end
@@ -142,12 +183,29 @@ module TelegramChessPuzzleBot
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
-        "- Reply with UCI moves like: e2e4",
-        "- You can send one move or a sequence: e2e4 e7e5",
+        "- Reply with one UCI move at a time: e2e4",
+        "- Bot will auto-play the opponent move in the line",
+        "- Scoreboard tracks correct user moves for current puzzle",
         "",
         "Works in DM and group chats."
       ].join("\n")
       client.api.send_message(chat_id: chat_id, text: msg)
+    end
+
+    def scoreboard_text(session)
+      entries = session.scores.values.sort_by { |row| -row['correct_moves'] }
+      return 'Scoreboard: no correct moves yet.' if entries.empty?
+
+      "Scoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
+    end
+
+    def display_name_for(user)
+      return 'unknown' unless user
+
+      return "@#{user.username}" if user.respond_to?(:username) && user.username && !user.username.empty?
+      return user.first_name if user.respond_to?(:first_name) && user.first_name && !user.first_name.empty?
+
+      "user_#{user.id}"
     end
 
     def dig_value(value, key)
