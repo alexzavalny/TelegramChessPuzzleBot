@@ -12,6 +12,7 @@ RSpec.describe TelegramChessPuzzleBot::AnswerChecker do
 
     expect(result.correct).to be(true)
     expect(result.message).to match(/Correct first move/)
+    expect(result.completed).to be(false)
   end
 
   it 'accepts correct sequence prefix' do
@@ -19,11 +20,21 @@ RSpec.describe TelegramChessPuzzleBot::AnswerChecker do
 
     expect(result.correct).to be(true)
     expect(result.message).to match(/Correct so far/)
+    expect(result.completed).to be(false)
+  end
+
+  it 'marks completed when full sequence is given' do
+    result = checker.check('f3g3 f2g3 f8f1', solution)
+
+    expect(result.correct).to be(true)
+    expect(result.completed).to be(true)
+    expect(result.message).to match(/Correct sequence/)
   end
 
   it 'rejects wrong move' do
     result = checker.check('f3f2', solution)
 
     expect(result.correct).to be(false)
+    expect(result.completed).to be(false)
   end
 end

@@ -87,8 +87,12 @@ module TelegramChessPuzzleBot
       result = @answer_checker.check(text, session.puzzle.solution)
       puts "[#{Time.now}] Answer checked chat=#{chat_id} correct=#{result.correct} input=#{text.inspect}"
       client.api.send_message(chat_id: chat_id, text: result.message)
-      @session_store.delete(chat_id)
-      puts "[#{Time.now}] Session closed for chat=#{chat_id}"
+      if result.completed
+        @session_store.delete(chat_id)
+        puts "[#{Time.now}] Session closed for chat=#{chat_id}"
+      else
+        puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
+      end
     end
 
     def send_answer(client, chat_id)
@@ -105,8 +109,7 @@ module TelegramChessPuzzleBot
     end
 
     def caption_for(puzzle)
-      themes = puzzle.themes.first(3).join(', ')
-      "Daily Puzzle ##{puzzle.id} (#{puzzle.rating})\nThemes: #{themes}\nReply with UCI moves like: #{puzzle.solution.first}"
+      "Daily Puzzle ##{puzzle.id} (#{puzzle.rating})\nReply with UCI moves like: e2e4"
     end
   end
 end
