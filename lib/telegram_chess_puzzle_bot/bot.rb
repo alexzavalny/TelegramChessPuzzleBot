@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'cgi'
+
 module TelegramChessPuzzleBot
   class Bot
     START_REGEX = %r{(?:^|\s)/?start(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
@@ -151,11 +153,19 @@ module TelegramChessPuzzleBot
       session = @session_store.get(chat_id)
 
       if session.progress >= session.puzzle.solution.length
-        client.api.send_message(chat_id: chat_id, text: "Correct. Opponent plays #{bot_move}.\nLine complete.\n#{scoreboard_text(session)}")
+        client.api.send_message(
+          chat_id: chat_id,
+          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>.\nLine complete.\n#{CGI.escapeHTML(scoreboard_text(session))}",
+          parse_mode: 'HTML'
+        )
         @session_store.delete(chat_id)
         puts "[#{Time.now}] Session closed for chat=#{chat_id}"
       else
-        client.api.send_message(chat_id: chat_id, text: "Correct. Opponent plays #{bot_move}. Your turn.\n#{scoreboard_text(session)}")
+        client.api.send_message(
+          chat_id: chat_id,
+          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>. Your turn.\n#{CGI.escapeHTML(scoreboard_text(session))}",
+          parse_mode: 'HTML'
+        )
         puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
       end
     end
