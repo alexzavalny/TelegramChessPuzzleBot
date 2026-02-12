@@ -9,6 +9,7 @@ module TelegramChessPuzzleBot
     RANDOM_REGEX = %r{(?:^|\s)/?random(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_EASY_REGEX = %r{(?:^|\s)/?random-easy(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_HARD_REGEX = %r{(?:^|\s)/?random-hard(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    RANDOM_HARDEST_REGEX = %r{(?:^|\s)/?random-hardest(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
@@ -66,6 +67,9 @@ module TelegramChessPuzzleBot
       elsif text.match?(RANDOM_HARD_REGEX)
         puts "[#{Time.now}] Random-hard command in chat=#{chat_id}. Preparing random puzzle."
         send_puzzle(client, chat_id, source: :random, difficulty: 'harder')
+      elsif text.match?(RANDOM_HARDEST_REGEX)
+        puts "[#{Time.now}] Random-hardest command in chat=#{chat_id}. Preparing random puzzle."
+        send_puzzle(client, chat_id, source: :random, difficulty: 'hardest')
       elsif text.match?(ANSWER_REGEX)
         puts "[#{Time.now}] Answer command in chat=#{chat_id}."
         send_answer(client, chat_id)
@@ -219,6 +223,7 @@ module TelegramChessPuzzleBot
         "- random: get a random Lichess puzzle (difficulty: normal)",
         "- random-easy: get a random Lichess puzzle (difficulty: easier)",
         "- random-hard: get a random Lichess puzzle (difficulty: harder)",
+        "- random-hardest: get a random Lichess puzzle (difficulty: hardest)",
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
