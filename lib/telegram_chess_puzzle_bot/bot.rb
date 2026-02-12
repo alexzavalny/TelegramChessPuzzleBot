@@ -62,10 +62,10 @@ module TelegramChessPuzzleBot
         send_puzzle(client, chat_id, source: :random, difficulty: 'normal')
       elsif text.match?(RANDOM_EASY_REGEX)
         puts "[#{Time.now}] Random-easy command in chat=#{chat_id}. Preparing random puzzle."
-        send_puzzle(client, chat_id, source: :random, difficulty: 'easy')
+        send_puzzle(client, chat_id, source: :random, difficulty: 'easier')
       elsif text.match?(RANDOM_HARD_REGEX)
         puts "[#{Time.now}] Random-hard command in chat=#{chat_id}. Preparing random puzzle."
-        send_puzzle(client, chat_id, source: :random, difficulty: 'hard')
+        send_puzzle(client, chat_id, source: :random, difficulty: 'harder')
       elsif text.match?(ANSWER_REGEX)
         puts "[#{Time.now}] Answer command in chat=#{chat_id}."
         send_answer(client, chat_id)
@@ -118,68 +118,67 @@ module TelegramChessPuzzleBot
       session = @session_store.get(chat_id)
       return unless session
 
-      expected_move = session.puzzle.solution[session.progress]
-      unless expected_move
-        @session_store.update(chat_id) { |s| s.progress = 0 }
-        client.api.send_message(chat_id: chat_id, text: 'Puzzle line was complete, reset to start. Your turn.')
-        return
-      end
-
-      result = @answer_checker.check_turn(text, expected_move)
-      puts "[#{Time.now}] Answer checked chat=#{chat_id} correct=#{result.correct} input=#{text.inspect} expected=#{expected_move}"
-      unless result.correct
-        client.api.send_message(chat_id: chat_id, text: result.message)
-        puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
-        return
-      end
-
       user_name = display_name_for(message.from)
       user_id = message.from&.id || 0
-
+      outcome = nil
       @session_store.update(chat_id) do |s|
-        entry = s.scores[user_id] ||= { 'name' => user_name, 'correct_moves' => 0 }
+        progress = s.progress_by_user[user_id].to_i
+        progress = 0 if progress >= s.puzzle.solution.length
+        expected_move = s.puzzle.solution[progress]
+
+        result = @answer_checker.check_turn(text, expected_move)
+        puts "[#{Time.now}] Answer checked chat=#{chat_id} user=#{user_id} correct=#{result.correct} input=#{text.inspect} expected=#{expected_move}"
+
+        unless result.correct
+          outcome = { type: :wrong, message: result.message }
+          next
+        end
+
+        entry = s.scores[user_id] ||= { 'name' => user_name, 'correct_moves' => 0, 'solved_count' => 0 }
         entry['name'] = user_name
         entry['correct_moves'] += 1
-        s.progress += 1
-        if s.progress >= s.puzzle.solution.length
-          s.solved_by ||= { 'id' => user_id, 'name' => user_name }
+        progress += 1
+
+        if progress >= s.puzzle.solution.length
+          entry['solved_count'] += 1
+          s.progress_by_user[user_id] = 0
+          outcome = { type: :solved_user_move }
+          next
+        end
+
+        bot_move = s.puzzle.solution[progress]
+        progress += 1 if bot_move
+
+        if progress >= s.puzzle.solution.length
+          entry['solved_count'] += 1
+          s.progress_by_user[user_id] = 0
+          outcome = { type: :line_complete_with_bot, bot_move: bot_move }
+        else
+          s.progress_by_user[user_id] = progress
+          outcome = { type: :continue, bot_move: bot_move }
         end
       end
 
       session = @session_store.get(chat_id)
-      if session.progress >= session.puzzle.solution.length
-        client.api.send_message(chat_id: chat_id, text: "Correct. Puzzle solved.\n#{scoreboard_text(session)}\nLine reset, others can continue.")
-        @session_store.update(chat_id) { |s| s.progress = 0 }
-        puts "[#{Time.now}] Session kept active for chat=#{chat_id} (line reset after solve)"
-        return
-      end
-
-      bot_move = nil
-      @session_store.update(chat_id) do |s|
-        bot_move = s.puzzle.solution[s.progress]
-        s.progress += 1 if bot_move
-        if s.progress >= s.puzzle.solution.length
-          s.solved_by ||= { 'id' => user_id, 'name' => user_name }
-        end
-      end
-      session = @session_store.get(chat_id)
-
-      if session.progress >= session.puzzle.solution.length
+      case outcome && outcome[:type]
+      when :wrong
+        client.api.send_message(chat_id: chat_id, text: outcome[:message])
+      when :solved_user_move
+        client.api.send_message(chat_id: chat_id, text: "Correct. You solved the puzzle line.\n#{scoreboard_text(session)}")
+      when :line_complete_with_bot
         client.api.send_message(
           chat_id: chat_id,
-          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>.\nLine complete.\n#{CGI.escapeHTML(scoreboard_text(session))}\nLine reset, others can continue.",
+          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(outcome[:bot_move].to_s)}</tg-spoiler>.\nLine complete. You solved it.\n#{CGI.escapeHTML(scoreboard_text(session))}",
           parse_mode: 'HTML'
         )
-        @session_store.update(chat_id) { |s| s.progress = 0 }
-        puts "[#{Time.now}] Session kept active for chat=#{chat_id} (line reset after solve)"
-      else
+      when :continue
         client.api.send_message(
           chat_id: chat_id,
-          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(bot_move.to_s)}</tg-spoiler>. Your turn.\n#{CGI.escapeHTML(scoreboard_text(session))}",
+          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(outcome[:bot_move].to_s)}</tg-spoiler>. Your turn.\n#{CGI.escapeHTML(scoreboard_text(session))}",
           parse_mode: 'HTML'
         )
-        puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
       end
+      puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
     end
 
     def send_answer(client, chat_id)
@@ -218,13 +217,14 @@ module TelegramChessPuzzleBot
         "Commands:",
         "- puzzle: get today's Lichess daily puzzle",
         "- random: get a random Lichess puzzle (difficulty: normal)",
-        "- random-easy: get a random Lichess puzzle (difficulty: easy)",
-        "- random-hard: get a random Lichess puzzle (difficulty: hard)",
+        "- random-easy: get a random Lichess puzzle (difficulty: easier)",
+        "- random-hard: get a random Lichess puzzle (difficulty: harder)",
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
         "- Reply with one UCI move at a time: e2e4",
         "- Bot will auto-play the opponent move in the line",
+        "- In groups, each user has independent line progress",
         "- Scoreboard tracks correct user moves for current puzzle",
         "",
         "Works in DM and group chats."
@@ -234,14 +234,16 @@ module TelegramChessPuzzleBot
 
     def scoreboard_text(session)
       entries = session.scores.values.sort_by { |row| -row['correct_moves'] }
-      solved_line = if session.solved_by
-                      "Solved by: #{session.solved_by['name']}"
-                    else
+      solved_entries = entries.select { |row| row['solved_count'].to_i.positive? }
+      solved_line = if solved_entries.empty?
                       'Solved by: not solved yet'
+                    else
+                      "Solved by: " + solved_entries.map { |row| "#{row['name']} x#{row['solved_count']}" }.join(', ')
                     end
       return "#{solved_line}\nScoreboard: no correct moves yet." if entries.empty?
 
-      "#{solved_line}\nScoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
+      score_line = "Scoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
+      "#{solved_line}\n#{score_line}"
     end
 
     def display_name_for(user)

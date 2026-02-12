@@ -25,8 +25,8 @@ Telegram bot for chess puzzles in DMs and group chats.
 - `start`, `/start`, `/start@YourBotName`: show help
 - `puzzle`, `/puzzle`, `/puzzle@YourBotName`: start daily puzzle
 - `random`, `/random`, `/random@YourBotName`: start random puzzle (`difficulty=normal`)
-- `random-easy`, `/random-easy`, `/random-easy@YourBotName`: random puzzle (`difficulty=easy`)
-- `random-hard`, `/random-hard`, `/random-hard@YourBotName`: random puzzle (`difficulty=hard`)
+- `random-easy`, `/random-easy`, `/random-easy@YourBotName`: random puzzle (`difficulty=easier`)
+- `random-hard`, `/random-hard`, `/random-hard@YourBotName`: random puzzle (`difficulty=harder`)
 - `answer`, `/answer`, `/answer@YourBotName`: reveal current solution (spoiler)
 
 ## Solve Flow
@@ -35,8 +35,9 @@ Telegram bot for chess puzzles in DMs and group chats.
 2. Bot sends board image + side to move.
 3. User sends one UCI move, e.g. `e2e4`.
 4. If correct, bot plays opponent move (spoiler) and asks for next move.
-5. Wrong moves do not end the puzzle; users can retry.
-6. On completion, bot announces solved state, shows scoreboard, and resets line progress.
+5. In groups, each user has independent progress through the same puzzle line.
+6. Wrong moves do not end the puzzle; users can retry.
+7. On completion, bot announces solved state and updates scoreboard/solver stats.
 
 ## Input Format
 
@@ -76,6 +77,83 @@ Then remove/re-add the bot to the group and use command form for best reliabilit
 
 - Puzzle state is in memory and resets on process restart.
 - API/network errors are sent back to chat as bot error messages.
+
+## Deploy On Raspberry Pi (systemd)
+
+This runs the bot as a background service that survives SSH disconnects and restarts on reboot.
+
+1. Ensure token exists in `.env`:
+
+```bash
+cd /home/alex/Projects/TelegramChessPuzzleBot
+cp .env.example .env
+# edit .env and set TELEGRAM_BOT_TOKEN=...
+```
+
+2. Enable unbuffered Ruby logs in `/home/alex/Projects/TelegramChessPuzzleBot/bin/bot`:
+
+```ruby
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$stdout.sync = true
+$stderr.sync = true
+```
+
+3. Create service file:
+
+```bash
+sudo tee /etc/systemd/system/lichess-puzzle-bot.service >/dev/null <<'EOF'
+[Unit]
+Description=Telegram Lichess Puzzle Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/home/alex/Projects/TelegramChessPuzzleBot
+Environment=BUNDLE_GEMFILE=/home/alex/Projects/TelegramChessPuzzleBot/Gemfile
+ExecStart=/bin/bash -lc 'source /home/alex/.rvm/scripts/rvm && rvm use 3.1.0 && bundle exec ruby -u ./bin/bot'
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+4. Reload, enable, and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable lichess-puzzle-bot
+sudo systemctl start lichess-puzzle-bot
+```
+
+5. Manage service:
+
+```bash
+# start
+sudo systemctl start lichess-puzzle-bot
+
+# stop
+sudo systemctl stop lichess-puzzle-bot
+
+# restart
+sudo systemctl restart lichess-puzzle-bot
+
+# status
+sudo systemctl status lichess-puzzle-bot
+```
+
+6. View logs:
+
+```bash
+journalctl -u lichess-puzzle-bot -f
+```
 
 ## Tests
 
