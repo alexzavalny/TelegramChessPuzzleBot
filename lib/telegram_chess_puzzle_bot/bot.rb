@@ -122,63 +122,96 @@ module TelegramChessPuzzleBot
       session = @session_store.get(chat_id)
       return unless session
 
+      input_moves = @answer_checker.parse_moves(text)
+      if input_moves.empty?
+        client.api.send_message(chat_id: chat_id, text: 'Send one move like: e2e4')
+        return
+      end
+
       user_name = display_name_for(message.from)
       user_id = message.from&.id || 0
       outcome = nil
       @session_store.update(chat_id) do |s|
         progress = s.progress_by_user[user_id].to_i
         progress = 0 if progress >= s.puzzle.solution.length
-        expected_move = s.puzzle.solution[progress]
-
-        result = @answer_checker.check_turn(text, expected_move)
-        puts "[#{Time.now}] Answer checked chat=#{chat_id} user=#{user_id} correct=#{result.correct} input=#{text.inspect} expected=#{expected_move}"
-
-        unless result.correct
-          outcome = { type: :wrong, message: result.message }
-          next
-        end
 
         entry = s.scores[user_id] ||= { 'name' => user_name, 'correct_moves' => 0, 'solved_count' => 0 }
         entry['name'] = user_name
-        entry['correct_moves'] += 1
-        progress += 1
+        accepted_moves = []
+        opponent_moves = []
+        wrong_move = nil
 
-        if progress >= s.puzzle.solution.length
-          entry['solved_count'] += 1
-          s.progress_by_user[user_id] = 0
-          outcome = { type: :solved_user_move }
+        input_moves.each do |input_move|
+          expected_move = s.puzzle.solution[progress]
+          result = @answer_checker.check_turn(input_move, expected_move)
+          puts "[#{Time.now}] Answer checked chat=#{chat_id} user=#{user_id} correct=#{result.correct} input=#{input_move.inspect} expected=#{expected_move}"
+
+          unless result.correct
+            wrong_move = input_move
+            break
+          end
+
+          entry['correct_moves'] += 1
+          accepted_moves << input_move
+          progress += 1
+
+          break if progress >= s.puzzle.solution.length
+
+          bot_move = s.puzzle.solution[progress]
+          if bot_move
+            opponent_moves << bot_move
+            progress += 1
+          end
+
+          break if progress >= s.puzzle.solution.length
+        end
+
+        if accepted_moves.empty? && wrong_move
+          outcome = { type: :wrong, message: 'Wrong move. Try again.' }
           next
         end
 
-        bot_move = s.puzzle.solution[progress]
-        progress += 1 if bot_move
-
-        if progress >= s.puzzle.solution.length
+        line_complete = progress >= s.puzzle.solution.length
+        if line_complete
           entry['solved_count'] += 1
           s.progress_by_user[user_id] = 0
-          outcome = { type: :line_complete_with_bot, bot_move: bot_move }
         else
           s.progress_by_user[user_id] = progress
-          outcome = { type: :continue, bot_move: bot_move }
         end
+
+        outcome = {
+          type: :processed,
+          accepted_count: accepted_moves.length,
+          opponent_moves: opponent_moves,
+          line_complete: line_complete,
+          wrong_move: wrong_move
+        }
       end
 
       session = @session_store.get(chat_id)
       case outcome && outcome[:type]
       when :wrong
         client.api.send_message(chat_id: chat_id, text: outcome[:message])
-      when :solved_user_move
-        client.api.send_message(chat_id: chat_id, text: "Correct. You solved the puzzle line.\n#{scoreboard_text(session)}")
-      when :line_complete_with_bot
+      when :processed
+        scoreboard = CGI.escapeHTML(scoreboard_text(session))
+        base = "Accepted #{outcome[:accepted_count]} move#{outcome[:accepted_count] == 1 ? '' : 's'}."
+        opponent_line = if outcome[:opponent_moves].any?
+                          escaped = CGI.escapeHTML(outcome[:opponent_moves].join(' '))
+                          "\nOpponent replies: <tg-spoiler>#{escaped}</tg-spoiler>."
+                        else
+                          ''
+                        end
+        status_line =
+          if outcome[:line_complete]
+            "\nLine complete. You solved it."
+          elsif outcome[:wrong_move]
+            "\nThen wrong move: #{CGI.escapeHTML(outcome[:wrong_move])}. Your turn from the current position."
+          else
+            "\nYour turn."
+          end
         client.api.send_message(
           chat_id: chat_id,
-          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(outcome[:bot_move].to_s)}</tg-spoiler>.\nLine complete. You solved it.\n#{CGI.escapeHTML(scoreboard_text(session))}",
-          parse_mode: 'HTML'
-        )
-      when :continue
-        client.api.send_message(
-          chat_id: chat_id,
-          text: "Correct. Opponent plays <tg-spoiler>#{CGI.escapeHTML(outcome[:bot_move].to_s)}</tg-spoiler>. Your turn.\n#{CGI.escapeHTML(scoreboard_text(session))}",
+          text: "#{base}#{opponent_line}#{status_line}\n#{scoreboard}",
           parse_mode: 'HTML'
         )
       end
@@ -227,7 +260,7 @@ module TelegramChessPuzzleBot
         "- answer: reveal the full solution for current puzzle",
         "",
         "How to solve:",
-        "- Reply with one UCI move at a time: e2e4",
+        "- Reply with one or more UCI moves: e2e4 or e2e4 g1f3",
         "- Bot will auto-play the opponent move in the line",
         "- In groups, each user has independent line progress",
         "- Scoreboard tracks correct user moves for current puzzle",

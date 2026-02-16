@@ -14,11 +14,9 @@ RSpec.describe TelegramChessPuzzleBot::AnswerChecker do
     expect(result.move).to eq('f3g3')
   end
 
-  it 'rejects multi-move input' do
-    result = checker.check_turn('f3g3 f2g3', expected_move)
-
-    expect(result.correct).to be(false)
-    expect(result.message).to match(/one move at a time/i)
+  it 'parses multiple moves from one message' do
+    moves = checker.parse_moves('f3g3, f2g3; g1f3')
+    expect(moves).to eq(%w[f3g3 f2g3 g1f3])
   end
 
   it 'rejects wrong move' do

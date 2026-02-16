@@ -5,7 +5,7 @@ module TelegramChessPuzzleBot
     Result = Struct.new(:correct, :message, :move, keyword_init: true)
 
     def check_turn(input_text, expected_move)
-      moves = parse_input_moves(input_text)
+      moves = parse_moves(input_text)
       return Result.new(correct: false, message: 'Send one move like: e2e4') if moves.empty?
       return Result.new(correct: false, message: 'Send one move at a time (example: e2e4).') if moves.length > 1
 
@@ -17,9 +17,7 @@ module TelegramChessPuzzleBot
       end
     end
 
-    private
-
-    def parse_input_moves(input_text)
+    def parse_moves(input_text)
       input_text.to_s
                 .downcase
                 .strip
@@ -27,6 +25,5 @@ module TelegramChessPuzzleBot
                 .map { |token| token.gsub(/[^a-h1-8qrbn]/, '') }
                 .select { |token| token.match?(/\A[a-h][1-8][a-h][1-8][qrbn]?\z/) }
     end
-
   end
 end

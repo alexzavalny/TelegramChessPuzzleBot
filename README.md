@@ -10,7 +10,7 @@ Telegram bot for chess puzzles in DMs and group chats.
 - Board coordinates rendered on all sides
 - Board auto-flips when black is to move
 - Caption includes puzzle id, rating, and `White to move` / `Black to move`
-- Turn-by-turn solve flow (one UCI move at a time)
+- Turn-by-turn solve flow (supports one or multiple UCI moves per message)
 - Bot auto-plays opponent reply move from official solution
 - Opponent move is sent as Telegram spoiler
 - `answer` reveals full solution as Telegram spoiler
@@ -34,7 +34,7 @@ Telegram bot for chess puzzles in DMs and group chats.
 
 1. Request puzzle (`puzzle` or `random`).
 2. Bot sends board image + side to move.
-3. User sends one UCI move, e.g. `e2e4`.
+3. User sends one or more UCI moves, e.g. `e2e4` or `e2e4 g1f3`.
 4. If correct, bot plays opponent move (spoiler) and asks for next move.
 5. In groups, each user has independent progress through the same puzzle line.
 6. Wrong moves do not end the puzzle; users can retry.
@@ -43,7 +43,7 @@ Telegram bot for chess puzzles in DMs and group chats.
 ## Input Format
 
 - Expected format: UCI only (`e2e4`, promotion like `e7e8q`)
-- One move per message in active turn mode
+- One or multiple moves per message in active turn mode
 - SAN is not supported
 
 ## Setup
