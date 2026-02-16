@@ -3,16 +3,24 @@
 require 'spec_helper'
 
 RSpec.describe TelegramChessPuzzleBot::Bot do
-  ApiRecorder = Struct.new(:messages) do
+  ApiRecorder = Struct.new(:messages, :deleted_messages, :next_message_id) do
     def send_message(**kwargs)
+      self.next_message_id ||= 1
       messages << kwargs
+      result = { 'message_id' => next_message_id }
+      self.next_message_id += 1
+      result
+    end
+
+    def delete_message(**kwargs)
+      deleted_messages << kwargs
     end
   end
 
   ClientRecorder = Struct.new(:api)
   Chat = Struct.new(:id)
   User = Struct.new(:id, :username, :first_name)
-  Message = Struct.new(:chat, :text, :from)
+  Message = Struct.new(:chat, :text, :from, :message_id)
 
   subject(:bot) do
     described_class.new(
@@ -26,7 +34,7 @@ RSpec.describe TelegramChessPuzzleBot::Bot do
   end
 
   let(:session_store) { TelegramChessPuzzleBot::PuzzleSessionStore.new }
-  let(:api) { ApiRecorder.new([]) }
+  let(:api) { ApiRecorder.new([], [], 1) }
   let(:client) { ClientRecorder.new(api) }
   let(:chat_id) { 42 }
   let(:user_id) { 1001 }
@@ -49,12 +57,13 @@ RSpec.describe TelegramChessPuzzleBot::Bot do
   end
 
   it 'accepts multiple user moves in one message and completes the line' do
-    message = Message.new(chat, 'a2a4 b2b4', message_user)
+    message = Message.new(chat, 'a2a4 b2b4', message_user, 11)
 
     bot.send(:check_answer, client, message)
 
     sent = api.messages.last
     expect(sent[:parse_mode]).to eq('HTML')
+    expect(sent[:reply_to_message_id]).to eq(11)
     expect(sent[:text]).to include('Accepted 2 moves.')
     expect(sent[:text]).to include('Opponent replies:')
     expect(sent[:text]).to include('a7a5 b7b5')
@@ -64,15 +73,17 @@ RSpec.describe TelegramChessPuzzleBot::Bot do
     expect(session.progress_by_user[user_id]).to eq(0)
     expect(session.scores[user_id]['correct_moves']).to eq(2)
     expect(session.scores[user_id]['solved_count']).to eq(1)
+    expect(api.deleted_messages).to be_empty
   end
 
   it 'applies correct prefix and stops at first wrong move in the same message' do
-    message = Message.new(chat, 'a2a4 h2h4', message_user)
+    message = Message.new(chat, 'a2a4 h2h4', message_user, 12)
 
     bot.send(:check_answer, client, message)
 
     sent = api.messages.last
     expect(sent[:parse_mode]).to eq('HTML')
+    expect(sent[:reply_to_message_id]).to eq(12)
     expect(sent[:text]).to include('Accepted 1 move.')
     expect(sent[:text]).to include('Opponent replies:')
     expect(sent[:text]).to include('a7a5')
@@ -82,5 +93,18 @@ RSpec.describe TelegramChessPuzzleBot::Bot do
     expect(session.progress_by_user[user_id]).to eq(2)
     expect(session.scores[user_id]['correct_moves']).to eq(1)
     expect(session.scores[user_id]['solved_count']).to eq(0)
+    expect(api.deleted_messages).to be_empty
+  end
+
+  it 'deletes older bot replies to the user when the line is solved' do
+    first = Message.new(chat, 'a2a4', message_user, 20)
+    second = Message.new(chat, 'b2b4', message_user, 21)
+
+    bot.send(:check_answer, client, first)
+    bot.send(:check_answer, client, second)
+
+    expect(api.messages.length).to eq(2)
+    expect(api.messages.last[:text]).to include('Line complete. You solved it.')
+    expect(api.deleted_messages).to eq([{ chat_id: chat_id, message_id: 1 }])
   end
 end

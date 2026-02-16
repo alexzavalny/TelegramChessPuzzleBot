@@ -119,12 +119,19 @@ module TelegramChessPuzzleBot
     def check_answer(client, message)
       chat_id = message.chat.id
       text = message.text.to_s.strip
+      reply_to_message_id = message.respond_to?(:message_id) ? message.message_id : nil
       session = @session_store.get(chat_id)
       return unless session
 
       input_moves = @answer_checker.parse_moves(text)
       if input_moves.empty?
-        client.api.send_message(chat_id: chat_id, text: 'Send one move like: e2e4')
+        sent = send_reply_message(
+          client,
+          chat_id: chat_id,
+          text: 'Send one move like: e2e4',
+          reply_to_message_id: reply_to_message_id
+        )
+        track_reply_message(chat_id: chat_id, user_id: message.from&.id || 0, sent_message: sent, keep_only_latest: false)
         return
       end
 
@@ -191,7 +198,13 @@ module TelegramChessPuzzleBot
       session = @session_store.get(chat_id)
       case outcome && outcome[:type]
       when :wrong
-        client.api.send_message(chat_id: chat_id, text: outcome[:message])
+        sent = send_reply_message(
+          client,
+          chat_id: chat_id,
+          text: outcome[:message],
+          reply_to_message_id: reply_to_message_id
+        )
+        track_reply_message(chat_id: chat_id, user_id: user_id, sent_message: sent, keep_only_latest: false)
       when :processed
         scoreboard = CGI.escapeHTML(scoreboard_text(session))
         base = "Accepted #{outcome[:accepted_count]} move#{outcome[:accepted_count] == 1 ? '' : 's'}."
@@ -209,11 +222,20 @@ module TelegramChessPuzzleBot
           else
             "\nYour turn."
           end
-        client.api.send_message(
+        sent = send_reply_message(
+          client,
           chat_id: chat_id,
           text: "#{base}#{opponent_line}#{status_line}\n#{scoreboard}",
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
+          reply_to_message_id: reply_to_message_id
         )
+        stale_message_ids = track_reply_message(
+          chat_id: chat_id,
+          user_id: user_id,
+          sent_message: sent,
+          keep_only_latest: outcome[:line_complete]
+        )
+        delete_messages(client, chat_id: chat_id, message_ids: stale_message_ids)
       end
       puts "[#{Time.now}] Session kept active for chat=#{chat_id}"
     end
@@ -300,6 +322,36 @@ module TelegramChessPuzzleBot
         value[key.to_s] || value[key.to_sym]
       elsif value.respond_to?(:[])
         value[key]
+      end
+    end
+
+    def send_reply_message(client, chat_id:, text:, reply_to_message_id:, parse_mode: nil)
+      payload = { chat_id: chat_id, text: text }
+      payload[:parse_mode] = parse_mode if parse_mode
+      payload[:reply_to_message_id] = reply_to_message_id if reply_to_message_id
+      client.api.send_message(**payload)
+    end
+
+    def track_reply_message(chat_id:, user_id:, sent_message:, keep_only_latest:)
+      message_id = dig_value(sent_message, :message_id)
+      return [] unless message_id
+
+      stale_message_ids = []
+      @session_store.update(chat_id) do |session|
+        session.reply_message_ids_by_user ||= {}
+        ids = session.reply_message_ids_by_user[user_id] ||= []
+        stale_message_ids = ids.dup if keep_only_latest
+        ids << message_id
+        ids.replace([message_id]) if keep_only_latest
+      end
+      stale_message_ids
+    end
+
+    def delete_messages(client, chat_id:, message_ids:)
+      message_ids.uniq.each do |message_id|
+        client.api.delete_message(chat_id: chat_id, message_id: message_id)
+      rescue StandardError => e
+        puts "[#{Time.now}] Failed to delete message chat=#{chat_id} message_id=#{message_id}: #{e.class}: #{e.message}"
       end
     end
   end
