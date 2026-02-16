@@ -205,7 +205,7 @@ module TelegramChessPuzzleBot
           if outcome[:line_complete]
             "\nLine complete. You solved it."
           elsif outcome[:wrong_move]
-            "\nThen wrong move: #{CGI.escapeHTML(outcome[:wrong_move])}. Your turn from the current position."
+            "\nThen wrong move: <tg-spoiler>#{CGI.escapeHTML(outcome[:wrong_move])}</tg-spoiler>. Your turn from the current position."
           else
             "\nYour turn."
           end

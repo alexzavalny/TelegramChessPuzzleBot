@@ -76,7 +76,7 @@ RSpec.describe TelegramChessPuzzleBot::Bot do
     expect(sent[:text]).to include('Accepted 1 move.')
     expect(sent[:text]).to include('Opponent replies:')
     expect(sent[:text]).to include('a7a5')
-    expect(sent[:text]).to include('Then wrong move: h2h4')
+    expect(sent[:text]).to include('Then wrong move: <tg-spoiler>h2h4</tg-spoiler>')
 
     session = session_store.get(chat_id)
     expect(session.progress_by_user[user_id]).to eq(2)
