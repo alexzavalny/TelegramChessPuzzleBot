@@ -5,7 +5,8 @@ require 'cgi'
 module TelegramChessPuzzleBot
   class Bot
     START_REGEX = %r{(?:^|\s)/?start(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
-    TRIGGER_REGEX = %r{(?:^|\s)/?puzzle(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    HELP_REGEX = %r{(?:^|\s)/?help(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    TRIGGER_REGEX = %r{(?:^|\s)/?daily(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_REGEX = %r{(?:^|\s)/?random(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_EASY_REGEX = %r{(?:^|\s)/?random-easy(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_HARD_REGEX = %r{(?:^|\s)/?random-hard(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
@@ -52,7 +53,7 @@ module TelegramChessPuzzleBot
       user = message.from&.username || message.from&.first_name || "unknown"
       puts "[#{Time.now}] Message chat=#{chat_id} user=#{user} text=#{text.inspect}"
 
-      if text.match?(START_REGEX)
+      if text.match?(START_REGEX) || text.match?(HELP_REGEX)
         puts "[#{Time.now}] Start/help command in chat=#{chat_id}."
         send_help(client, chat_id)
       elsif text.match?(TRIGGER_REGEX)
@@ -141,9 +142,8 @@ module TelegramChessPuzzleBot
       @session_store.update(chat_id) do |s|
         progress = s.progress_by_user[user_id].to_i
         progress = 0 if progress >= s.puzzle.solution.length
+        s.attempt_errors_by_user ||= {}
 
-        entry = s.scores[user_id] ||= { 'name' => user_name, 'correct_moves' => 0, 'solved_count' => 0 }
-        entry['name'] = user_name
         accepted_moves = []
         opponent_moves = []
         wrong_move = nil
@@ -158,7 +158,6 @@ module TelegramChessPuzzleBot
             break
           end
 
-          entry['correct_moves'] += 1
           accepted_moves << input_move
           progress += 1
 
@@ -174,14 +173,21 @@ module TelegramChessPuzzleBot
         end
 
         if accepted_moves.empty? && wrong_move
+          s.attempt_errors_by_user[user_id] = true
           outcome = { type: :wrong, message: 'Wrong move. Try again.' }
           next
         end
 
+        s.attempt_errors_by_user[user_id] = true if wrong_move
         line_complete = progress >= s.puzzle.solution.length
         if line_complete
+          had_error = s.attempt_errors_by_user[user_id]
+          entry = s.scores[user_id] ||= { 'name' => user_name, 'solved_count' => 0, 'flawless_solved_count' => 0 }
+          entry['name'] = user_name
           entry['solved_count'] += 1
+          entry['flawless_solved_count'] += 1 unless had_error
           s.progress_by_user[user_id] = 0
+          s.attempt_errors_by_user[user_id] = false
         else
           s.progress_by_user[user_id] = progress
         end
@@ -198,15 +204,11 @@ module TelegramChessPuzzleBot
       session = @session_store.get(chat_id)
       case outcome && outcome[:type]
       when :wrong
-        sent = send_reply_message(
-          client,
-          chat_id: chat_id,
-          text: outcome[:message],
-          reply_to_message_id: reply_to_message_id
-        )
-        track_reply_message(chat_id: chat_id, user_id: user_id, sent_message: sent, keep_only_latest: false)
+        react_to_guess(client, chat_id: chat_id, message_id: reply_to_message_id, positive: false)
       when :processed
-        scoreboard = CGI.escapeHTML(scoreboard_text(session))
+        positive_reaction = !outcome[:wrong_move] && outcome[:accepted_count].positive?
+        react_to_guess(client, chat_id: chat_id, message_id: reply_to_message_id, positive: positive_reaction)
+        solved_by = CGI.escapeHTML(scoreboard_text(session))
         base = "Accepted #{outcome[:accepted_count]} move#{outcome[:accepted_count] == 1 ? '' : 's'}."
         opponent_line = if outcome[:opponent_moves].any?
                           escaped = CGI.escapeHTML(outcome[:opponent_moves].join(' '))
@@ -218,14 +220,14 @@ module TelegramChessPuzzleBot
           if outcome[:line_complete]
             "\nLine complete. You solved it."
           elsif outcome[:wrong_move]
-            "\nThen wrong move: <tg-spoiler>#{CGI.escapeHTML(outcome[:wrong_move])}</tg-spoiler>. Your turn from the current position."
+            "\nYour turn from the current position."
           else
             "\nYour turn."
           end
         sent = send_reply_message(
           client,
           chat_id: chat_id,
-          text: "#{base}#{opponent_line}#{status_line}\n#{scoreboard}",
+          text: "#{base}#{opponent_line}#{status_line}\n#{solved_by}",
           parse_mode: 'HTML',
           reply_to_message_id: reply_to_message_id
         )
@@ -274,7 +276,8 @@ module TelegramChessPuzzleBot
         "Chess Puzzle Bot",
         "",
         "Commands:",
-        "- puzzle: get today's Lichess daily puzzle",
+        "- daily: get today's Lichess daily puzzle",
+        "- help: show help",
         "- random: get a random Lichess puzzle (difficulty: normal)",
         "- random-easy: get a random Lichess puzzle (difficulty: easier)",
         "- random-hard: get a random Lichess puzzle (difficulty: harder)",
@@ -285,7 +288,7 @@ module TelegramChessPuzzleBot
         "- Reply with one or more UCI moves: e2e4 or e2e4 g1f3",
         "- Bot will auto-play the opponent move in the line",
         "- In groups, each user has independent line progress",
-        "- Scoreboard tracks correct user moves for current puzzle",
+        "- Bot tracks who solved the puzzle",
         "",
         "Works in DM and group chats."
       ].join("\n")
@@ -293,17 +296,11 @@ module TelegramChessPuzzleBot
     end
 
     def scoreboard_text(session)
-      entries = session.scores.values.sort_by { |row| -row['correct_moves'] }
-      solved_entries = entries.select { |row| row['solved_count'].to_i.positive? }
-      solved_line = if solved_entries.empty?
-                      'Solved by: not solved yet'
-                    else
-                      "Solved by: " + solved_entries.map { |row| "#{row['name']} x#{row['solved_count']}" }.join(', ')
-                    end
-      return "#{solved_line}\nScoreboard: no correct moves yet." if entries.empty?
+      solved_entries = session.scores.values.select { |row| row['solved_count'].to_i.positive? }
+      return 'Solved by: not solved yet' if solved_entries.empty?
 
-      score_line = "Scoreboard: " + entries.map { |row| "#{row['name']}: #{row['correct_moves']}" }.join(', ')
-      "#{solved_line}\n#{score_line}"
+      ranked = solved_entries.sort_by { |row| [-row['solved_count'].to_i, row['name'].to_s] }
+      "Solved by: " + ranked.map { |row| "#{row['flawless_solved_count'].to_i.positive? ? '⭐' : ''}#{row['name']}" }.join(', ')
     end
 
     def display_name_for(user)
@@ -353,6 +350,19 @@ module TelegramChessPuzzleBot
       rescue StandardError => e
         puts "[#{Time.now}] Failed to delete message chat=#{chat_id} message_id=#{message_id}: #{e.class}: #{e.message}"
       end
+    end
+
+    def react_to_guess(client, chat_id:, message_id:, positive:)
+      return unless message_id
+
+      reaction = positive ? "\u{1F44D}" : "\u{1F44E}"
+      client.api.set_message_reaction(
+        chat_id: chat_id,
+        message_id: message_id,
+        reaction: [{ type: 'emoji', emoji: reaction }]
+      )
+    rescue StandardError => e
+      puts "[#{Time.now}] Failed to set reaction chat=#{chat_id} message_id=#{message_id}: #{e.class}: #{e.message}"
     end
   end
 end

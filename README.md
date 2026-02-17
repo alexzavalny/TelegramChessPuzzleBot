@@ -23,7 +23,8 @@ Telegram bot for chess puzzles in DMs and group chats.
 ## Commands
 
 - `start`, `/start`, `/start@YourBotName`: show help
-- `puzzle`, `/puzzle`, `/puzzle@YourBotName`: start daily puzzle
+- `help`, `/help`, `/help@YourBotName`: show help
+- `daily`, `/daily`, `/daily@YourBotName`: start daily puzzle
 - `random`, `/random`, `/random@YourBotName`: start random puzzle (`difficulty=normal`)
 - `random-easy`, `/random-easy`, `/random-easy@YourBotName`: random puzzle (`difficulty=easier`)
 - `random-hard`, `/random-hard`, `/random-hard@YourBotName`: random puzzle (`difficulty=harder`)
@@ -32,7 +33,7 @@ Telegram bot for chess puzzles in DMs and group chats.
 
 ## Solve Flow
 
-1. Request puzzle (`puzzle` or `random`).
+1. Request puzzle (`daily` or `random`).
 2. Bot sends board image + side to move.
 3. User sends one or more UCI moves, e.g. `e2e4` or `e2e4 g1f3`.
 4. If correct, bot plays opponent move (spoiler) and asks for next move.
@@ -65,7 +66,7 @@ In BotFather for your bot:
 
 Then remove/re-add the bot to the group and use command form for best reliability:
 
-- `/puzzle@YourBotName`
+- `/daily@YourBotName`
 - `/random@YourBotName`
 - `/answer@YourBotName`
 
