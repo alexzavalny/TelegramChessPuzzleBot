@@ -1,0 +1,144 @@
+# frozen_string_literal: true
+
+require 'cgi'
+require 'date'
+require 'dotenv/load'
+require 'fileutils'
+require 'json'
+require 'net/http'
+require 'telegram/bot'
+require 'time'
+
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
+require 'telegram_chess_puzzle_bot'
+
+DEFAULT_USERS = %w[TheErix AlexIsNot Jefimser toyechkina GregoryZavalny].freeze
+DEFAULT_SILENT_USERS = %w[toyechkina GregoryZavalny].freeze
+DEFAULT_CHAT_ID = '-1002036693478'
+DEFAULT_MENTIONS = {
+  'AlexIsNot' => '@alexzavalny',
+  'TheErix' => '@erik_grigoriev',
+  'Jefimser' => '@jefimser',
+  'toyechkina' => '@toyechkina',
+  'GregoryZavalny' => '@GregoryZavalny'
+}.freeze
+
+module TelegramChessPuzzleBot
+  class StormReminder
+    def initialize(token:, chat_id:, usernames:, mentions:, silent_usernames: [], lichess_client: LichessClient.new,
+                   state_store: StormReminderState.new, today: Date.today)
+      @token = token
+      @chat_id = chat_id
+      @usernames = usernames
+      @mentions = mentions
+      @silent_usernames = silent_usernames.map(&:downcase)
+      @today = today
+      @checker = StormChecker.new(lichess_client: lichess_client, today: today)
+      @state_store = state_store
+    end
+
+    def run(dry_run: false)
+      state = @state_store.for_date(@today)
+      return log('All players already done; staying silent.') if state['all_done_announced']
+
+      results = @checker.check(@usernames)
+      message = build_message(results, state)
+
+      if message.to_s.strip.empty?
+        @state_store.save(state) unless dry_run
+        log('Nothing to send.')
+      elsif dry_run
+        puts message
+      else
+        Telegram::Bot::Client.run(@token) do |client|
+          client.api.send_message(chat_id: @chat_id, text: message, parse_mode: 'HTML', disable_web_page_preview: true)
+        end
+        @state_store.save(state)
+        log('Reminder sent.')
+      end
+    end
+
+    private
+
+    def build_message(results, state)
+      done = results.select(&:done)
+      missing = results.reject { |r| r.done || r.error || @silent_usernames.include?(r.username.downcase) }
+      errors = results.select(&:error)
+      praised = state['praised'] ||= []
+      newly_done = done.reject { |r| praised.include?(r.username.downcase) }
+      lines = []
+
+      if missing.empty? && errors.empty?
+        unless state['all_done_announced']
+          done.each { |result| praised << result.username.downcase unless praised.include?(result.username.downcase) }
+          lines << StormReport.manual_status(results, @mentions)
+          lines << ''
+          lines << '🏆 Все сделали Puzzle Storm сегодня. Красавцы! До завтра молчу.'
+          state['all_done_announced'] = true
+        end
+      else
+        unless newly_done.empty?
+          lines << '👏 <b>Puzzle Storm сегодня сделали:</b>'
+          newly_done.each do |result|
+            lines << "#{mention_for(result.username)} — #{format_day(result.day)}"
+            praised << result.username.downcase
+          end
+        end
+
+        unless missing.empty?
+          lines << '' unless lines.empty?
+          lines << '⏰ <b>Ещё ждём Puzzle Storm от:</b>'
+          missing.each { |result| lines << "#{mention_for(result.username)} — пора на Lichess Storm ⚡" }
+        end
+
+        unless errors.empty?
+          lines << '' unless lines.empty?
+          lines << '⚠️ Не смог проверить:'
+          errors.each { |result| lines << "#{escape(result.username)} — #{escape(result.error.message)}" }
+        end
+      end
+
+      lines.join("\n")
+    end
+
+    def format_day(day)
+      score = day.fetch('score', 0)
+      runs = day.fetch('runs', 0)
+      highest = day.fetch('highest', 0)
+      combo = day.fetch('combo', 0)
+      errors = day.fetch('errors', 0)
+      "score #{score}, runs #{runs}, highest #{highest}, combo #{combo}, errors #{errors}"
+    end
+
+    def escape(text)
+      CGI.escapeHTML(text.to_s)
+    end
+
+    def mention_for(username)
+      mention = @mentions[username] || @mentions[username.downcase]
+      return escape(username) if mention.to_s.strip.empty?
+
+      escape(mention)
+    end
+
+    def log(message)
+      puts "[#{Time.now}] #{message}"
+    end
+  end
+end
+
+if $PROGRAM_NAME == __FILE__
+  token = ENV.fetch('TELEGRAM_BOT_TOKEN')
+  chat_id = ENV.fetch('STORM_REMINDER_CHAT_ID', DEFAULT_CHAT_ID)
+  usernames = ENV.fetch('STORM_REMINDER_USERS', DEFAULT_USERS.join(',')).split(',').map(&:strip).reject(&:empty?)
+  silent_usernames = ENV.fetch('STORM_SILENT_USERS', DEFAULT_SILENT_USERS.join(',')).split(',').map(&:strip).reject(&:empty?)
+  mentions = DEFAULT_MENTIONS.merge(
+    ENV.fetch('STORM_REMINDER_MENTIONS', '').split(',').each_with_object({}) do |pair, map|
+      lichess, telegram = pair.split('=', 2).map { |part| part.to_s.strip }
+      map[lichess] = telegram if lichess && !lichess.empty? && telegram && !telegram.empty?
+    end
+  )
+  dry_run = ARGV.include?('--dry-run')
+
+  TelegramChessPuzzleBot::StormReminder.new(token: token, chat_id: chat_id, usernames: usernames, mentions: mentions, silent_usernames: silent_usernames).run(dry_run: dry_run)
+end

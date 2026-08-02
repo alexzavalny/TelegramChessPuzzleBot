@@ -12,6 +12,16 @@ module TelegramChessPuzzleBot
     RANDOM_HARD_REGEX = %r{(?:^|\s)/?random-hard(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_HARDEST_REGEX = %r{(?:^|\s)/?random-hardest(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    STORM_REGEX = %r{(?:^|\s)/?storm(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    DEFAULT_STORM_USERS = %w[TheErix AlexIsNot Jefimser toyechkina GregoryZavalny].freeze
+    DEFAULT_STORM_SILENT_USERS = %w[toyechkina GregoryZavalny].freeze
+    DEFAULT_STORM_MENTIONS = {
+      'AlexIsNot' => '@alexzavalny',
+      'TheErix' => '@erik_grigoriev',
+      'Jefimser' => '@jefimser',
+      'toyechkina' => '@toyechkina',
+      'GregoryZavalny' => '@GregoryZavalny'
+    }.freeze
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
                    answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new)
@@ -74,6 +84,9 @@ module TelegramChessPuzzleBot
       elsif text.match?(ANSWER_REGEX)
         puts "[#{Time.now}] Answer command in chat=#{chat_id}."
         send_answer(client, chat_id)
+      elsif text.match?(STORM_REGEX)
+        puts "[#{Time.now}] Storm command in chat=#{chat_id}."
+        send_storm_status(client, chat_id)
       elsif @session_store.pending?(chat_id)
         puts "[#{Time.now}] Pending puzzle found for chat=#{chat_id}. Checking answer."
         check_answer(client, message)
@@ -259,6 +272,16 @@ module TelegramChessPuzzleBot
       puts "[#{Time.now}] Solution revealed and session closed for chat=#{chat_id}"
     end
 
+    def send_storm_status(client, chat_id)
+      usernames = ENV.fetch('STORM_REMINDER_USERS', DEFAULT_STORM_USERS.join(',')).split(',').map(&:strip).reject(&:empty?)
+      silent = ENV.fetch('STORM_SILENT_USERS', DEFAULT_STORM_SILENT_USERS.join(',')).split(',').map(&:strip).reject(&:empty?)
+      mentions = StormReport.mentions_from_env(DEFAULT_STORM_MENTIONS)
+      results = StormChecker.new(lichess_client: @lichess_client, today: Date.today).check(usernames)
+      text = StormReport.manual_status(results, mentions, silent_usernames: silent)
+      client.api.send_message(chat_id: chat_id, text: text, parse_mode: 'HTML', disable_web_page_preview: true)
+      puts "[#{Time.now}] Storm status sent to chat=#{chat_id}"
+    end
+
     def caption_for(puzzle, source:, difficulty:)
       title = if source == :random
                 diff = difficulty.to_s.strip
@@ -283,6 +306,7 @@ module TelegramChessPuzzleBot
         "- random-hard: get a random Lichess puzzle (difficulty: harder)",
         "- random-hardest: get a random Lichess puzzle (difficulty: hardest)",
         "- answer: reveal the full solution for current puzzle",
+        "- storm: show today's Puzzle Storm results",
         "",
         "How to solve:",
         "- Reply with one or more UCI moves: e2e4 or e2e4 g1f3",

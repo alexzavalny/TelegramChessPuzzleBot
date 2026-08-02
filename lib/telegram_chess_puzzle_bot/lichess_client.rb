@@ -4,6 +4,7 @@ module TelegramChessPuzzleBot
   class LichessClient
     DAILY_PUZZLE_URI = URI('https://lichess.org/api/puzzle/daily')
     RANDOM_PUZZLE_BASE_URI = URI('https://lichess.org/api/puzzle/next')
+    STORM_DASHBOARD_BASE = 'https://lichess.org/api/storm/dashboard'
 
     def initialize(http: Net::HTTP)
       @http = http
@@ -22,6 +23,16 @@ module TelegramChessPuzzleBot
 
       response = @http.get_response(uri)
       raise "Lichess API error: #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+
+      JSON.parse(response.body)
+    end
+
+    def fetch_storm_dashboard(username, days: 1)
+      uri = URI("#{STORM_DASHBOARD_BASE}/#{URI.encode_www_form_component(username)}")
+      uri.query = URI.encode_www_form(days: days)
+
+      response = @http.get_response(uri)
+      raise "Lichess Storm API error for #{username}: #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
       JSON.parse(response.body)
     end

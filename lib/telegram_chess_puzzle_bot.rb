@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'date'
+require 'fileutils'
 require 'json'
 require 'net/http'
 require 'time'
@@ -14,4 +16,7 @@ require_relative 'telegram_chess_puzzle_bot/answer_checker'
 require_relative 'telegram_chess_puzzle_bot/chess_position'
 require_relative 'telegram_chess_puzzle_bot/fen_builder'
 require_relative 'telegram_chess_puzzle_bot/board_renderer'
+require_relative 'telegram_chess_puzzle_bot/storm_checker'
+require_relative 'telegram_chess_puzzle_bot/storm_report'
+require_relative 'telegram_chess_puzzle_bot/storm_reminder_state'
 require_relative 'telegram_chess_puzzle_bot/bot'
