@@ -13,8 +13,8 @@ module TelegramChessPuzzleBot
     RANDOM_HARDEST_REGEX = %r{(?:^|\s)/?random-hardest(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     STORM_REGEX = %r{(?:^|\s)/?storm(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
-    DEFAULT_STORM_USERS = %w[TheErix AlexIsNot Jefimser toyechkina GregoryZavalny].freeze
-    DEFAULT_STORM_SILENT_USERS = %w[toyechkina GregoryZavalny].freeze
+    DEFAULT_STORM_USERS = %w[TheErix AlexIsNot Jefimser toyechkina GregoryZavalny zan00da].freeze
+    DEFAULT_STORM_SILENT_USERS = %w[toyechkina GregoryZavalny zan00da].freeze
     DEFAULT_STORM_MENTIONS = {
       'AlexIsNot' => '@alexzavalny',
       'TheErix' => '@erik_grigoriev',
@@ -277,8 +277,14 @@ module TelegramChessPuzzleBot
       silent = ENV.fetch('STORM_SILENT_USERS', DEFAULT_STORM_SILENT_USERS.join(',')).split(',').map(&:strip).reject(&:empty?)
       mentions = StormReport.mentions_from_env(DEFAULT_STORM_MENTIONS)
       results = StormChecker.new(lichess_client: @lichess_client, today: Date.today).check(usernames)
-      text = StormReport.manual_status(results, mentions, silent_usernames: silent)
-      client.api.send_message(chat_id: chat_id, text: text, parse_mode: 'HTML', disable_web_page_preview: true)
+      rich_message = StormReport.rich_status(results, mentions, silent_usernames: silent)
+      begin
+        client.api.call('sendRichMessage', chat_id: chat_id, rich_message: rich_message.to_json, disable_web_page_preview: true)
+      rescue Telegram::Bot::Exceptions::ResponseError => e
+        warn "[#{Time.now}] sendRichMessage failed: #{e.message}; falling back to Markdown"
+        text = StormReport.manual_status(results, mentions, silent_usernames: silent)
+        client.api.send_message(chat_id: chat_id, text: text, parse_mode: 'Markdown', disable_web_page_preview: true)
+      end
       puts "[#{Time.now}] Storm status sent to chat=#{chat_id}"
     end
 
