@@ -6,6 +6,15 @@ module TelegramChessPuzzleBot
   module StormReport
     module_function
 
+    DISPLAY_NAMES = {
+      'Jefimser' => 'Sergey J',
+      'TheErix' => 'Erik G',
+      'toyechkina' => 'Ksenija T',
+      'zan00da' => 'Vadim O',
+      'GregoryZavalny' => 'Grigorij Z',
+      'AlexIsNot' => 'Alex Z'
+    }.freeze
+
     def mentions_from_env(default_mentions = {})
       default_mentions.merge(
         ENV.fetch('STORM_REMINDER_MENTIONS', '').split(',').each_with_object({}) do |pair, map|
@@ -22,6 +31,10 @@ module TelegramChessPuzzleBot
       escape(mention)
     end
 
+    def display_name_for(username)
+      DISPLAY_NAMES.find { |lichess, _name| lichess.casecmp?(username.to_s) }&.last || username
+    end
+
     def day_value(day, key)
       day.fetch(key, 0)
     end
@@ -30,7 +43,7 @@ module TelegramChessPuzzleBot
       results.sort_by { |r| -r.day.fetch('score', 0).to_i }.map do |result|
         day = result.day
         [
-          result.username,
+          display_name_for(result.username),
           day_value(day, 'score'),
           day_value(day, 'runs'),
           day_value(day, 'highest'),

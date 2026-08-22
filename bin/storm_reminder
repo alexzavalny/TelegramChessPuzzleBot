@@ -115,7 +115,7 @@ module TelegramChessPuzzleBot
     def done_table(done)
       rows = done.sort_by { |r| -r.day.fetch('score', 0).to_i }.map do |result|
         day = result.day
-        "| #{escape(result.username)} | #{day_value(day, 'score')} | #{day_value(day, 'runs')} | #{day_value(day, 'highest')} | #{day_value(day, 'combo')} | #{day_value(day, 'errors')} |"
+        "| #{escape(StormReport.display_name_for(result.username))} | #{day_value(day, 'score')} | #{day_value(day, 'runs')} | #{day_value(day, 'highest')} | #{day_value(day, 'combo')} | #{day_value(day, 'errors')} |"
       end
 
       ([
