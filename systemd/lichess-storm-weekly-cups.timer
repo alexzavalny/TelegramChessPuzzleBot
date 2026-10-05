@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Telegram Lichess Puzzle Storm Weekly Cups every Sunday at 23:00 Riga time
+
+[Timer]
+OnCalendar=Sun *-*-* 23:00:00 Europe/Riga
+Persistent=true
+Unit=lichess-storm-weekly-cups.service
+
+[Install]
+WantedBy=timers.target

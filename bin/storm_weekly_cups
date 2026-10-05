@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'date'
+require 'dotenv/load'
+require 'json'
+require 'telegram/bot'
+
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
+require 'telegram_chess_puzzle_bot'
+
+DEFAULT_CHAT_ID = '-1002036693478'
+
+if $PROGRAM_NAME == __FILE__
+  token = ENV.fetch('TELEGRAM_BOT_TOKEN')
+  chat_id = ENV.fetch('STORM_REMINDER_CHAT_ID', DEFAULT_CHAT_ID)
+  dry_run = ARGV.include?('--dry-run')
+  text = TelegramChessPuzzleBot::StormCupTracker.new.weekly_report(date: Date.today)
+
+  if dry_run
+    puts text
+  else
+    Telegram::Bot::Client.run(token) do |client|
+      client.api.send_message(chat_id: chat_id, text: text, parse_mode: 'Markdown', disable_web_page_preview: true)
+    end
+    puts "[#{Time.now}] Weekly Storm cups sent."
+  end
+end

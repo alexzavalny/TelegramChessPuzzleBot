@@ -78,7 +78,7 @@ module TelegramChessPuzzleBot
       { type: 'table', cells: cells, is_bordered: true, is_striped: true }
     end
 
-    def rich_status(results, mentions, silent_usernames: [])
+    def rich_status(results, mentions, silent_usernames: [], cup_winner_names: [])
       silent = silent_usernames.map(&:downcase)
       done = results.select(&:done).sort_by { |r| -r.day.fetch('score', 0).to_i }
       missing = results.reject { |r| r.done || r.error || silent.include?(r.username.downcase) }
@@ -101,10 +101,12 @@ module TelegramChessPuzzleBot
         errors.each { |result| blocks << { type: 'paragraph', text: "#{result.username} — #{result.error.message}" } }
       end
 
+      append_cup_status_block(blocks, cup_winner_names)
+
       { blocks: blocks }
     end
 
-    def manual_status(results, mentions, silent_usernames: [])
+    def manual_status(results, mentions, silent_usernames: [], cup_winner_names: [])
       silent = silent_usernames.map(&:downcase)
       done = results.select(&:done).sort_by { |r| -r.day.fetch('score', 0).to_i }
       missing = results.reject { |r| r.done || r.error || silent.include?(r.username.downcase) }
@@ -129,7 +131,26 @@ module TelegramChessPuzzleBot
         errors.each { |result| lines << "#{escape(result.username)} — #{escape(result.error.message)}" }
       end
 
+      append_cup_status_lines(lines, cup_winner_names)
+
       lines.join("\n")
+    end
+
+    def append_cup_status_lines(lines, winner_names)
+      names = Array(winner_names).reject { |name| name.to_s.strip.empty? }
+      return if names.empty?
+
+      lines << '' unless lines.empty?
+      verb = names.length == 1 ? 'получает' : 'получают'
+      lines << "Пока что 🏆 #{verb} - #{names.map { |name| escape(name) }.join(', ')}"
+    end
+
+    def append_cup_status_block(blocks, winner_names)
+      names = Array(winner_names).reject { |name| name.to_s.strip.empty? }
+      return if names.empty?
+
+      verb = names.length == 1 ? 'получает' : 'получают'
+      blocks << { type: 'paragraph', text: "Пока что 🏆 #{verb} - #{names.join(', ')}" }
     end
 
     def escape(text)

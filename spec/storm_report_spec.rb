@@ -28,4 +28,16 @@ RSpec.describe TelegramChessPuzzleBot::StormReport do
 
     expect(table.fetch(:cells).flatten).to include(hash_including(text: 'Erik G'))
   end
+
+  it 'appends current cup holder to manual and rich status' do
+    results = [
+      Result.new(username: 'TheErix', done: true, day: { 'score' => 31, 'runs' => 4, 'highest' => 1500, 'combo' => 60, 'errors' => 1 })
+    ]
+
+    text = described_class.manual_status(results, {}, cup_winner_names: ['Erik G'])
+    rich = described_class.rich_status(results, {}, cup_winner_names: ['Erik G'])
+
+    expect(text).to include('Пока что 🏆 получает - Erik G')
+    expect(rich.fetch(:blocks)).to include(hash_including(text: 'Пока что 🏆 получает - Erik G'))
+  end
 end

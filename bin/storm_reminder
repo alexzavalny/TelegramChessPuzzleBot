@@ -35,13 +35,16 @@ module TelegramChessPuzzleBot
       @today = today
       @checker = StormChecker.new(lichess_client: lichess_client, today: today)
       @state_store = state_store
+      @cup_tracker = StormCupTracker.new
     end
 
     def run(dry_run: false)
       state = @state_store.for_date(@today)
+      results = @checker.check(@usernames)
+      @cup_tracker.record_daily_winners(date: @today, results: results) unless dry_run
+
       return log('All players already done; staying silent.') if state['all_done_announced']
 
-      results = @checker.check(@usernames)
       message = build_message(results, state)
 
       if message.to_s.strip.empty?
@@ -96,11 +99,19 @@ module TelegramChessPuzzleBot
         end
       end
 
+      cup_names = @cup_tracker.current_winner_names(results)
+      StormReport.append_cup_status_lines(lines, cup_names)
+
       lines.join("\n")
     end
 
     def build_rich_message(results, plain_message)
-      rich = StormReport.rich_status(results, @mentions, silent_usernames: @silent_usernames)
+      rich = StormReport.rich_status(
+        results,
+        @mentions,
+        silent_usernames: @silent_usernames,
+        cup_winner_names: @cup_tracker.current_winner_names(results)
+      )
       all_done_line = '🏆 Все сделали Puzzle Storm сегодня. Красавцы! До завтра молчу.'
       if plain_message.include?(all_done_line)
         rich[:blocks] << { type: 'paragraph', text: all_done_line }

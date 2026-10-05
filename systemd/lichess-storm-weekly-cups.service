@@ -1,0 +1,12 @@
+[Unit]
+Description=Telegram Lichess Puzzle Storm Weekly Cups
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/home/alex/Projects/TelegramChessPuzzleBot
+Environment=BUNDLE_GEMFILE=/home/alex/Projects/TelegramChessPuzzleBot/Gemfile
+Environment=STORM_REMINDER_CHAT_ID=-5576539673
+ExecStart=/bin/bash -lc 'source /home/alex/.rvm/scripts/rvm && rvm use 3.1.0 && bundle exec ruby ./bin/storm_weekly_cups'
