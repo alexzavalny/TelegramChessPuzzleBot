@@ -12,6 +12,7 @@ module TelegramChessPuzzleBot
     RANDOM_HARD_REGEX = %r{(?:^|\s)/?random-hard(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     RANDOM_HARDEST_REGEX = %r{(?:^|\s)/?random-hardest(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     ANSWER_REGEX = %r{(?:^|\s)/?answer(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
+    TEST_REGEX = %r{(?:^|\s)/?test(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     STORM_REGEX = %r{(?:^|\s)/?storm(?:@[A-Za-z0-9_]+)?(?:\s|$)}i
     DEFAULT_STORM_USERS = %w[TheErix AlexIsNot Jefimser toyechkina GregoryZavalny zan00da].freeze
     DEFAULT_STORM_SILENT_USERS = %w[toyechkina GregoryZavalny zan00da].freeze
@@ -24,13 +25,14 @@ module TelegramChessPuzzleBot
     }.freeze
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
-                   answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new)
+                   answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new, telegram_api: nil)
       @token = token
       @lichess_client = lichess_client
       @fen_builder = fen_builder
       @board_renderer = board_renderer
       @answer_checker = answer_checker
       @session_store = session_store
+      @telegram_api = telegram_api || TelegramApi.new(token)
     end
 
     def start
@@ -87,6 +89,9 @@ module TelegramChessPuzzleBot
       elsif text.match?(STORM_REGEX)
         puts "[#{Time.now}] Storm command in chat=#{chat_id}."
         send_storm_status(client, chat_id)
+      elsif text.match?(TEST_REGEX)
+        puts "[#{Time.now}] Test widget command in chat=#{chat_id}."
+        send_test_widget(client, chat_id)
       elsif @session_store.pending?(chat_id)
         puts "[#{Time.now}] Pending puzzle found for chat=#{chat_id}. Checking answer."
         check_answer(client, message)
@@ -303,6 +308,31 @@ module TelegramChessPuzzleBot
       "#{title} ##{puzzle.id} (#{puzzle.rating})\n#{to_move}\nReply with UCI moves like: e2e4"
     end
 
+    def send_test_widget(client, chat_id)
+      if chat_id.to_i.negative?
+        client.api.send_message(
+          chat_id: chat_id,
+          text: 'Widgets are only available in a private chat with the bot for now.'
+        )
+        return
+      end
+
+      puts "[#{Time.now}] Sending test board widget to chat=#{chat_id}"
+      html = TestBoardWidget.html
+      @telegram_api.call(
+        'sendWidget',
+        chat_id: chat_id,
+        html: html,
+        width: 320,
+        height: 400,
+        caption: 'Test board: tap a piece, then a square.'
+      )
+      puts "[#{Time.now}] Test board widget sent to chat=#{chat_id}"
+    rescue StandardError => e
+      puts "[#{Time.now}] sendWidget failed chat=#{chat_id}: #{e.class}: #{e.message}"
+      client.api.send_message(chat_id: chat_id, text: "Widget test failed: #{e.message}")
+    end
+
     def send_help(client, chat_id)
       msg = [
         "Chess Puzzle Bot",
@@ -316,6 +346,7 @@ module TelegramChessPuzzleBot
         "- random-hardest: get a random Lichess puzzle (difficulty: hardest)",
         "- answer: reveal the full solution for current puzzle",
         "- storm: show today's Puzzle Storm results",
+        "- test: send an experimental interactive board widget (private chat only)",
         "",
         "How to solve:",
         "- Reply with one or more UCI moves: e2e4 or e2e4 g1f3",
