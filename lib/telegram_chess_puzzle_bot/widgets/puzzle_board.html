@@ -116,7 +116,7 @@ bd.addEventListener("click",function(e){
   var cell=e.target;
   while(cell&&!(cell.dataset&&cell.dataset.i!==undefined))cell=cell.parentElement;
   if(!cell)return;
-  var idx=+cell.dataset.i,code=board[idx];
+  var v=+cell.dataset.i,idx=flipped?63-v:v,code=board[idx];
   wrong=-1;
   if(sel===null){
     if(code&&code!=="."&&(code===code.toUpperCase())===(PUZZLE.fen.split(" ")[1]==="w"))sel=idx;
