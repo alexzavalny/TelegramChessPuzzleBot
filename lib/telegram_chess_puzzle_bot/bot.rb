@@ -318,14 +318,21 @@ module TelegramChessPuzzleBot
       end
 
       puts "[#{Time.now}] Sending test board widget to chat=#{chat_id}"
-      html = TestBoardWidget.html
+      payload = @lichess_client.fetch_daily_puzzle
+      puzzle = payload.fetch('puzzle')
+      fen = @fen_builder.build(
+        pgn: payload.fetch('game').fetch('pgn'),
+        initial_ply: puzzle.fetch('initialPly')
+      )
+      side = fen.split(' ')[1] == 'w' ? 'White' : 'Black'
+      html = PuzzleWidget.html(fen: fen, solution: puzzle.fetch('solution'), rating: puzzle['rating'])
       @telegram_api.call(
         'sendWidget',
         chat_id: chat_id,
         html: html,
         width: 320,
-        height: 400,
-        caption: 'Test board: tap a piece, then a square.'
+        height: 360,
+        caption: "Test puzzle ##{puzzle['id']} (#{puzzle['rating']}) — you play #{side}. Tap a piece, then a square."
       )
       puts "[#{Time.now}] Test board widget sent to chat=#{chat_id}"
     rescue StandardError => e
@@ -346,7 +353,7 @@ module TelegramChessPuzzleBot
         "- random-hardest: get a random Lichess puzzle (difficulty: hardest)",
         "- answer: reveal the full solution for current puzzle",
         "- storm: show today's Puzzle Storm results",
-        "- test: send an experimental interactive board widget (private chat only)",
+        "- test: interactive puzzle widget (private chat only)",
         "",
         "How to solve:",
         "- Reply with one or more UCI moves: e2e4 or e2e4 g1f3",

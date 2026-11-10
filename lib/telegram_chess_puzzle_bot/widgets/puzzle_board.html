@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{margin:0;padding:4px;background:transparent;font-family:system-ui,sans-serif;color:#181825;-webkit-user-select:none;user-select:none}
+.top{display:flex;align-items:center;justify-content:space-between;margin:0 2px 6px;font-size:12px}
+#st{font-weight:600}
+#pg{color:#6b6b76;font-weight:500}
+</style>
+</head>
+<body>
+<div class="top"><span id="st">Your move</span><span id="pg"></span></div>
+<div id="bd" style="position:relative;width:100%;height:300px;border-radius:10px;overflow:hidden"></div>
+<script>
+var PUZZLE=__PUZZLE_DATA__;
+var LIGHT="#f0f1ec",DARK="#9db392",SEL="#7fc98a",LAST="#c9e3bd",WRONG="#d98b95";
+var FILES="abcdefgh";
+var PATHS={
+p:'<circle cx="22.5" cy="11.5" r="5"/><path d="M17.8 18h9.4c0 4.4-2 6.3-3.5 9.2h3.5v5.2H17.8v-5.2h3.5c-1.5-2.9-3.5-4.8-3.5-9.2z"/><rect x="12" y="32.4" width="21" height="3.2" rx="1.3"/><rect x="9.5" y="35.6" width="26" height="4.2" rx="2"/>',
+r:'<path d="M11 8h5v3h4V8h5v3h4V8h5v10H11z"/><path d="M14.5 18h16l-1.5 12.4H16z"/><rect x="12" y="30.4" width="21" height="3.2" rx="1.3"/><rect x="9.5" y="33.6" width="26" height="4.2" rx="2"/>',
+n:'<path d="M9.8 24.5c0-3.2 1.7-5.6 4.4-7l4.2-2.3-1.2-4.6 4.2 1.9L23 7.5l3.1 5.6c4.6 1.7 7.3 5.8 7.3 11.1v5.6H17.8l2.6-6.6-4 .5-4.3 1.7z"/><circle cx="21.3" cy="15.2" r=".9" fill="#181825" stroke="none"/><rect x="12" y="30.2" width="21" height="3.2" rx="1.3"/><rect x="9.5" y="33.4" width="26" height="4.2" rx="2"/>',
+b:'<circle cx="22.5" cy="7" r="2.3"/><path d="M22.5 9.6c4.1 3.2 6.1 6.4 6.1 9.6 0 2.2-1 3.9-2.4 5.2H18.8c-1.4-1.3-2.4-3-2.4-5.2 0-3.2 2-6.4 6.1-9.6z"/><path d="M17.2 24.8h10.6l1.7 6.4H15.5z"/><rect x="12" y="31.2" width="21" height="3.1" rx="1.3"/><rect x="9.5" y="34.3" width="26" height="4.2" rx="2"/>',
+q:'<path d="M9.5 11l4.6 8.8-4.1-1.9 4.5 10.6h16l4.5-10.6-4.1 1.9L35.5 11l-6.6 6.1L25.4 7l-3.4 10.1L18.6 7z"/><path d="M14 28.6h17l1.8 3.4H12.2z"/><rect x="12" y="31.6" width="21" height="3.1" rx="1.3"/><rect x="9.5" y="34.7" width="26" height="4.2" rx="2"/>',
+k:'<path d="M21.3 4.6h2.4v2.3h2.4v2.3h-2.4V12h-2.4V9.2h-2.4V6.9h2.4z"/><path d="M22.5 12.6c4 0 7 2.5 7 5.5 0 2-1 3.7-2.6 4.7l1 5.4h-11l1-5.4c-1.6-1-2.6-2.7-2.6-4.7 0-3 3-5.5 7-5.5z"/><rect x="12" y="28.9" width="21" height="3.1" rx="1.3"/><rect x="9.5" y="32" width="26" height="4.2" rx="2"/>'
+};
+var SOLUTION=PUZZLE.solution,progress=0;
+var board=parseFen(PUZZLE.fen);
+var flipped=PUZZLE.fen.split(" ")[1]==="b";
+var sel=null,last=null,wrong=-1,busy=false;
+var bd=document.getElementById("bd"),cells=[];
+function parseFen(fen){
+  var rows=fen.split(" ")[0].split("/"),b=[];
+  for(var r=0;r<8;r++){
+    var f=0;
+    for(var k=0;k<rows[r].length;k++){
+      var ch=rows[r].charAt(k);
+      if(ch>="1"&&ch<="8"){f+=+ch}
+      else{b[r*8+f]=ch;f++}
+    }
+  }
+  for(var i=0;i<64;i++)if(!b[i])b[i]=".";
+  return b;
+}
+function sqIndex(s){return (8-+s.charAt(1))*8+FILES.indexOf(s.charAt(0))}
+function sqName(i){return FILES.charAt(i%8)+(8-Math.floor(i/8))}
+function sizeBoard(){
+  var w=bd.offsetWidth;
+  if(w&&Math.abs(bd.offsetHeight-w)>1)bd.style.height=w+"px";
+}
+sizeBoard();
+window.addEventListener("resize",sizeBoard);
+for(var i=0;i<64;i++){
+  var d=document.createElement("div");
+  d.style.position="absolute";
+  d.style.width="12.5%";
+  d.style.height="12.5%";
+  d.style.display="flex";
+  d.style.alignItems="center";
+  d.style.justifyContent="center";
+  d.dataset.i=i;
+  bd.appendChild(d);
+  cells.push(d);
+}
+function draw(){
+  for(var v=0;v<64;v++){
+    var cell=cells[v],vr=Math.floor(v/8),vf=v%8;
+    var r=flipped?7-vr:vr,f=flipped?7-vf:vf,idx=r*8+f;
+    cell.style.left=(vf*12.5)+"%";
+    cell.style.top=(vr*12.5)+"%";
+    cell.style.background=((r+f)%2?DARK:LIGHT);
+    if(sel===idx)cell.style.background=SEL;
+    else if(last&&(last[0]===idx||last[1]===idx))cell.style.background=LAST;
+    if(wrong===idx)cell.style.background=WRONG;
+    var code=board[idx];
+    cell.innerHTML="";
+    if(code&&code!=="."){
+      var white=code===code.toUpperCase();
+      cell.innerHTML='<svg viewBox="0 0 45 45" style="display:block;width:100%;height:100%;padding:5%;box-sizing:border-box" fill="'+(white?"#fff":"#181825")+'" stroke="'+(white?"#1b1b1b":"#181825")+'" stroke-width="'+(white?1.4:1.1)+'" stroke-linejoin="round">'+PATHS[code.toLowerCase()]+"</svg>";
+    }
+  }
+}
+function apply(uci){
+  var from=sqIndex(uci.substr(0,2)),to=sqIndex(uci.substr(2,2)),promo=uci.charAt(4);
+  var piece=board[from],target=board[to];
+  if(piece.toLowerCase()==="p"&&!(from%8===to%8)&&(!target||target===".")){
+    board[to+(piece===piece.toUpperCase()?8:-8)]=".";
+  }
+  board[to]=promo?(piece===piece.toUpperCase()?promo.toUpperCase():promo):piece;
+  board[from]=".";
+  if(piece.toLowerCase()==="k"&&Math.abs((from%8)-(to%8))===2){
+    var rank=Math.floor(from/8),rf,rt;
+    if(to%8===6){rf=rank*8+7;rt=rank*8+5}else{rf=rank*8;rt=rank*8+3}
+    board[rt]=board[rf];board[rf]=".";
+  }
+  last=[from,to];
+}
+function setStatus(t){document.getElementById("st").textContent=t}
+function setProgress(){document.getElementById("pg").textContent=(SOLUTION.length?Math.min(progress+1,SOLUTION.length):0)+" / "+SOLUTION.length}
+function uciFor(from,to){
+  var piece=board[from],uci=sqName(from)+sqName(to);
+  if(piece.toLowerCase()==="p"&&((piece===piece.toUpperCase()&&Math.floor(to/8)===0)||(piece===piece.toLowerCase()&&Math.floor(to/8)===7))){
+    var expected=SOLUTION[progress];
+    uci+=(expected&&expected.length===5)?expected.charAt(4):"q";
+  }
+  return uci;
+}
+function solved(){
+  busy=true;
+  setStatus("Solved!"+(PUZZLE.rating?" \u00b7 "+PUZZLE.rating:""));
+  setProgress();
+}
+bd.addEventListener("click",function(e){
+  if(busy)return;
+  var cell=e.target;
+  while(cell&&!(cell.dataset&&cell.dataset.i!==undefined))cell=cell.parentElement;
+  if(!cell)return;
+  var idx=+cell.dataset.i,code=board[idx];
+  wrong=-1;
+  if(sel===null){
+    if(code&&code!=="."&&(code===code.toUpperCase())===(PUZZLE.fen.split(" ")[1]==="w"))sel=idx;
+    draw();
+    return;
+  }
+  if(idx===sel){sel=null;draw();return}
+  if(code&&code!=="."&&(code===code.toUpperCase())===(board[sel]===board[sel].toUpperCase())){sel=idx;draw();return}
+  var uci=uciFor(sel,idx);
+  if(uci===SOLUTION[progress]){
+    apply(uci);progress++;sel=null;
+    if(progress>=SOLUTION.length){draw();solved();return}
+    busy=true;setStatus("Opponent\u2026");draw();
+    setTimeout(function(){
+      apply(SOLUTION[progress]);progress++;busy=false;
+      if(progress>=SOLUTION.length){draw();solved();return}
+      setStatus("Your move");setProgress();draw();
+    },320);
+    setProgress();draw();
+  }else{
+    wrong=idx;draw();
+    setTimeout(function(){wrong=-1;draw()},320);
+  }
+});
+setProgress();
+draw();
+</script>
+</body>
+</html>
