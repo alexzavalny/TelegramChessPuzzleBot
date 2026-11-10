@@ -25,7 +25,8 @@ module TelegramChessPuzzleBot
     }.freeze
 
     def initialize(token:, lichess_client: LichessClient.new, fen_builder: FenBuilder.new, board_renderer: BoardRenderer.new,
-                   answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new, telegram_api: nil)
+                   answer_checker: AnswerChecker.new, session_store: PuzzleSessionStore.new, telegram_api: nil,
+                   widget_solve_store: WidgetSolveStore.new, widget_message_store: WidgetMessageStore.new)
       @token = token
       @lichess_client = lichess_client
       @fen_builder = fen_builder
@@ -33,29 +34,99 @@ module TelegramChessPuzzleBot
       @answer_checker = answer_checker
       @session_store = session_store
       @telegram_api = telegram_api || TelegramApi.new(token)
+      @widget_solve_store = widget_solve_store
+      @widget_message_store = widget_message_store
     end
 
     def start
       puts "[#{Time.now}] Starting TelegramChessPuzzleBot..."
-      Telegram::Bot::Client.run(@token) do |client|
-        me = client.api.get_me
-        username = dig_value(me, :username)
-        bot_id = dig_value(me, :id)
-        puts "[#{Time.now}] Logged in as @#{username} (id=#{bot_id})"
-        client.api.delete_webhook(drop_pending_updates: false)
-        puts "[#{Time.now}] Webhook removed. Using long polling for updates."
-        puts "[#{Time.now}] Bot connected. Waiting for messages."
-        client.listen do |message|
-          handle_message(client, message)
-        rescue StandardError => e
-          puts "[#{Time.now}] Error while handling message: #{e.class}: #{e.message}"
-          puts e.backtrace.first(5).join("\n") if e.backtrace
-          client.api.send_message(chat_id: message.chat.id, text: "Error: #{e.message}")
+      client = Telegram::Bot::Client.new(@token)
+      me = client.api.get_me
+      puts "[#{Time.now}] Logged in as @#{dig_value(me, :username)} (id=#{dig_value(me, :id)})"
+      client.api.delete_webhook(drop_pending_updates: false)
+      puts "[#{Time.now}] Webhook removed. Using long polling for updates."
+      puts "[#{Time.now}] Bot connected. Waiting for messages."
+      poll_updates(client)
+    end
+
+    private
+
+    # Long polling over the raw API so ``widget_query`` updates reach us;
+    # telegram-bot-ruby's typed Update struct drops unknown update types.
+    def poll_updates(client)
+      offset = 0
+      loop do
+        begin
+          updates = @telegram_api.get_updates(offset: offset, timeout: 20)
+        rescue TelegramApi::Error, IOError, SystemCallError, Timeout::Error => e
+          puts "[#{Time.now}] getUpdates failed: #{e.class}: #{e.message}; retrying in 3s"
+          sleep 3
+          next
+        end
+
+        updates.each do |raw|
+          offset = raw['update_id'] + 1
+          begin
+            if raw['widget_query']
+              handle_widget_query(client, raw['widget_query'])
+            elsif raw['message']
+              handle_message(client, Telegram::Bot::Types::Update.new(raw).current_message)
+            end
+          rescue StandardError => e
+            puts "[#{Time.now}] Error while handling update: #{e.class}: #{e.message}"
+            puts e.backtrace.first(5).join("\n") if e.backtrace
+          end
         end
       end
     end
 
-    private
+    # A tap in a widget arrives as widget_query; the widget waits at most 15s,
+    # so answer first and do the chat message afterwards.
+    def handle_widget_query(client, query)
+      chat_id = query.dig('chat', 'id')
+      message_id = query['message_id']
+      user_id = query.dig('from', 'id')
+      data = parse_widget_data(query['data'])
+
+      if data && data['t'] == 'solved'
+        entry = @widget_message_store.find(message_id)
+        if entry && entry[:id] == data['p']
+          seconds = data['ms'].to_f / 1000.0
+          total, added = @widget_solve_store.record(
+            chat_id: chat_id || entry[:chat_id],
+            user_id: user_id,
+            puzzle: entry[:id],
+            seconds: seconds,
+            rating: entry[:rating]
+          )
+          answer_widget_query(query['id'], 'ok' => true, 'n' => total, 'new' => added)
+          if added
+            message = "✅ Решено ##{entry[:id]} (#{entry[:rating]}) за #{format('%.1f', seconds)} с — всего #{total}."
+            client.api.send_message(chat_id: chat_id || entry[:chat_id], text: message)
+            puts "[#{Time.now}] Widget puzzle ##{entry[:id]} solved by user=#{user_id} in #{format('%.1f', seconds)}s (total #{total})"
+          end
+          return
+        end
+
+        answer_widget_query(query['id'], 'ok' => false, 'e' => 'unknown puzzle')
+        puts "[#{Time.now}] Ignored widget solve for unknown message_id=#{message_id} data=#{query['data'].inspect}"
+        return
+      end
+
+      answer_widget_query(query['id'], 'ok' => false, 'e' => 'unsupported')
+    end
+
+    def parse_widget_data(raw)
+      JSON.parse(raw.to_s)
+    rescue JSON::ParserError
+      nil
+    end
+
+    def answer_widget_query(query_id, payload)
+      @telegram_api.call('answerWidgetQuery', widget_query_id: query_id, data: JSON.generate(payload))
+    rescue TelegramApi::Error => e
+      puts "[#{Time.now}] answerWidgetQuery failed: #{e.message}"
+    end
 
     def handle_message(client, message)
       return unless message.respond_to?(:text) && message.text
@@ -325,15 +396,17 @@ module TelegramChessPuzzleBot
         initial_ply: puzzle.fetch('initialPly')
       )
       side = fen.split(' ')[1] == 'w' ? 'White' : 'Black'
-      html = PuzzleWidget.html(fen: fen, solution: puzzle.fetch('solution'), rating: puzzle['rating'])
-      @telegram_api.call(
+      html = PuzzleWidget.html(fen: fen, solution: puzzle.fetch('solution'), rating: puzzle['rating'], id: puzzle['id'])
+      result = @telegram_api.call(
         'sendWidget',
         chat_id: chat_id,
         html: html,
         width: 320,
         height: 360,
+        allow_queries: true,
         caption: "Test puzzle ##{puzzle['id']} (#{puzzle['rating']}) — you play #{side}. Tap a piece, then a square."
       )
+      @widget_message_store.add(result['message_id'], id: puzzle['id'], rating: puzzle['rating'], chat_id: chat_id)
       puts "[#{Time.now}] Test board widget sent to chat=#{chat_id}"
     rescue StandardError => e
       puts "[#{Time.now}] sendWidget failed chat=#{chat_id}: #{e.class}: #{e.message}"

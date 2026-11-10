@@ -2,6 +2,8 @@
 
 require 'spec_helper'
 require 'json'
+require 'tmpdir'
+require 'fileutils'
 require 'zlib'
 
 RSpec.describe 'telegram widget test command' do
@@ -35,11 +37,14 @@ RSpec.describe 'telegram widget test command' do
       board_renderer: double('board_renderer'),
       answer_checker: TelegramChessPuzzleBot::AnswerChecker.new,
       session_store: TelegramChessPuzzleBot::PuzzleSessionStore.new,
-      telegram_api: telegram_api
+      telegram_api: telegram_api,
+      widget_message_store: TelegramChessPuzzleBot::WidgetMessageStore.new(path: File.join(@dir, 'messages.json')),
+      widget_solve_store: TelegramChessPuzzleBot::WidgetSolveStore.new(path: File.join(@dir, 'solves.json'))
     )
   end
 
   before do
+    @dir = Dir.mktmpdir
     allow(lichess_client).to receive(:fetch_daily_puzzle).and_return(
       'game' => { 'pgn' => '1. e4 e5' },
       'puzzle' => {
@@ -78,4 +83,6 @@ RSpec.describe 'telegram widget test command' do
     expect(telegram_api.calls).to be_empty
     expect(messages.messages.last[:text]).to include('private chat')
   end
+
+  after { FileUtils.remove_entry(@dir) }
 end

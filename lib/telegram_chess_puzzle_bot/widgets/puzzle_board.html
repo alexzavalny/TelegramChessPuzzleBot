@@ -28,7 +28,7 @@ k:'<path d="M21.3 4.6h2.4v2.3h2.4v2.3h-2.4V12h-2.4V9.2h-2.4V6.9h2.4z"/><path d="
 var SOLUTION=PUZZLE.solution,progress=0;
 var board=parseFen(PUZZLE.fen);
 var flipped=PUZZLE.fen.split(" ")[1]==="b";
-var sel=null,last=null,wrong=-1,busy=false;
+var sel=null,last=null,wrong=-1,busy=false,startedAt=null;
 var bd=document.getElementById("bd"),cells=[];
 function parseFen(fen){
   var rows=fen.split(" ")[0].split("/"),b=[];
@@ -108,8 +108,26 @@ function uciFor(from,to){
 }
 function solved(){
   busy=true;
-  setStatus("Solved!"+(PUZZLE.rating?" \u00b7 "+PUZZLE.rating:""));
+  report();
   setProgress();
+}
+// The bot has to hear about it: one request, sent from the tap handler,
+// under the 64-byte limit. Without TelegramWidget (a plain browser) it is a no-op.
+function report(){
+  var label="Solved!"+(PUZZLE.rating?" \u00b7 "+PUZZLE.rating:"");
+  setStatus(label);
+  if(!PUZZLE.id||typeof TelegramWidget==="undefined"||!TelegramWidget.request)return;
+  var payload=JSON.stringify({t:"solved",p:PUZZLE.id,ms:Date.now()-(startedAt||Date.now())});
+  if(payload.length>64)return;
+  try{
+    TelegramWidget.request(payload).then(function(answer){
+      var ok=false;
+      try{ok=!!JSON.parse(answer.result).ok}catch(e){}
+      setStatus((ok?"Solved! \u2713":"Solved!")+(PUZZLE.rating?" \u00b7 "+PUZZLE.rating:""));
+    },function(){
+      setStatus("Solved! (not saved)");
+    });
+  }catch(e){}
 }
 bd.addEventListener("click",function(e){
   if(busy)return;
@@ -119,7 +137,7 @@ bd.addEventListener("click",function(e){
   var v=+cell.dataset.i,idx=flipped?63-v:v,code=board[idx];
   wrong=-1;
   if(sel===null){
-    if(code&&code!=="."&&(code===code.toUpperCase())===(PUZZLE.fen.split(" ")[1]==="w"))sel=idx;
+    if(code&&code!=="."&&(code===code.toUpperCase())===(PUZZLE.fen.split(" ")[1]==="w")){sel=idx;startedAt=startedAt||Date.now()}
     draw();
     return;
   }
