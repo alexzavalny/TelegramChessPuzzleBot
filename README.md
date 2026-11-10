@@ -19,6 +19,9 @@ Telegram bot for chess puzzles in DMs and group chats.
 - `Solved by` tracking
 - Puzzle stays active after solve; line resets so others can continue
 - Runtime console logs for startup and message handling
+- Experimental interactive puzzle widget via `/test` (private chat only): the
+  puzzle is solved by tapping pieces, with the solution baked into the HTML and
+  a single `widget_query` reporting the result — see [docs/widgets.md](docs/widgets.md)
 
 ## Commands
 
@@ -30,6 +33,8 @@ Telegram bot for chess puzzles in DMs and group chats.
 - `random-hard`, `/random-hard`, `/random-hard@YourBotName`: random puzzle (`difficulty=harder`)
 - `random-hardest`, `/random-hardest`, `/random-hardest@YourBotName`: random puzzle (`difficulty=hardest`)
 - `answer`, `/answer`, `/answer@YourBotName`: reveal current solution (spoiler)
+- `test`, `/test`, `/test@YourBotName`: send the daily puzzle as an interactive
+  widget (private chat only)
 
 ## Solve Flow
 
